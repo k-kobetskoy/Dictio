@@ -1,0 +1,35 @@
+# Build output
+bin/
+obj/
+
+# Visual Studio / Rider
+.vs/
+*.user
+*.suo
+.idea/**/workspace.xml
+.idea/**/tasks.xml
+.idea/**/usage.statistics.xml
+.idea/**/shelf/
+.idea/**/contentModel.xml
+.idea/**/dataSources/
+.idea/**/sqlDataSources.xml
+.idea/**/dynamic.xml
+.idea/**/uiDesigner.xml
+
+# Keep .idea project config (not user-specific)
+!.idea/.idea.Dictio/
+!.idea/.idea.Dictio/**
+!.idea/.idea.WpfApp1/
+!.idea/.idea.WpfApp1/**
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Claude Code internal
+.claude/
+
+# Screenshots / temp files
+*.jpg
+*.png
+*.jpeg

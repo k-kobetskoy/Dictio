@@ -1,0 +1,44 @@
+<Window x:Class="Dictio.Views.SettingsWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Dictio — Settings"
+        Width="420" Height="400"
+        ResizeMode="NoResize"
+        WindowStartupLocation="CenterScreen">
+    <StackPanel Margin="20">
+
+        <Label Content="OpenAI API Key" FontWeight="SemiBold"/>
+        <PasswordBox x:Name="ApiKeyBox" Margin="0,0,0,12"/>
+
+        <Label Content="Microphone" FontWeight="SemiBold"/>
+        <ComboBox x:Name="AudioDeviceCombo" Margin="0,0,0,12"/>
+
+        <Label Content="Model" FontWeight="SemiBold"/>
+        <ComboBox x:Name="ModelCombo" Margin="0,0,0,12">
+            <ComboBoxItem Content="whisper-1" Tag="whisper-1"/>
+            <ComboBoxItem Content="gpt-4o-transcribe" Tag="gpt-4o-transcribe"/>
+        </ComboBox>
+
+        <Label Content="Hotkey Mode" FontWeight="SemiBold"/>
+        <ComboBox x:Name="HotkeyModeCombo" Margin="0,0,0,12">
+            <ComboBoxItem Content="Toggle (press once to start, once to stop)" Tag="Toggle"/>
+            <ComboBoxItem Content="Push to Talk (hold to record, release to transcribe)" Tag="PushToTalk"/>
+        </ComboBox>
+
+        <Label Content="Hotkey" FontWeight="SemiBold"/>
+        <StackPanel Orientation="Horizontal" Margin="0,0,0,20">
+            <CheckBox x:Name="CtrlCheck" Content="Ctrl" VerticalAlignment="Center" Margin="0,0,10,0"/>
+            <CheckBox x:Name="ShiftCheck" Content="Shift" VerticalAlignment="Center" Margin="0,0,10,0"/>
+            <TextBox x:Name="KeyBox" Width="80" VerticalAlignment="Center"
+                     ToolTip="Enter a key name: Space, F1-F12, A-Z, etc."/>
+        </StackPanel>
+
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+            <Button Content="Save" Width="80" Margin="0,0,8,0" Click="Save_Click"
+                    IsDefault="True"/>
+            <Button Content="Cancel" Width="80" Click="Cancel_Click"
+                    IsCancel="True"/>
+        </StackPanel>
+
+    </StackPanel>
+</Window>
