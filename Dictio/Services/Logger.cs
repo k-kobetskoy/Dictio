@@ -8,28 +8,37 @@ public static class Logger
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
         "Dictio", "debug.log");
 
+    private static readonly string LocalLogPath = Path.Combine(
+        AppDomain.CurrentDomain.BaseDirectory, "debug.log");
+
     private const long MaxBytes = 2 * 1024 * 1024; // 2 MB
 
     public static void Log(string message)
     {
+        var line = $"{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}  {message}{Environment.NewLine}";
+        WriteToPath(LogPath, line);
+        WriteToPath(LocalLogPath, line);
+    }
+
+    private static void WriteToPath(string path, string line)
+    {
         try
         {
-            Directory.CreateDirectory(Path.GetDirectoryName(LogPath)!);
-            RotateIfNeeded();
-            File.AppendAllText(LogPath, $"{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}  {message}{Environment.NewLine}");
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            RotateIfNeeded(path);
+            File.AppendAllText(path, line);
         }
         catch { }
     }
 
-    private static void RotateIfNeeded()
+    private static void RotateIfNeeded(string path)
     {
-        if (!File.Exists(LogPath)) return;
-        var info = new FileInfo(LogPath);
+        if (!File.Exists(path)) return;
+        var info = new FileInfo(path);
         if (info.Length > MaxBytes)
         {
-            var backup = LogPath + ".old";
-            File.Copy(LogPath, backup, overwrite: true);
-            File.Delete(LogPath);
+            File.Copy(path, path + ".old", overwrite: true);
+            File.Delete(path);
         }
     }
 }

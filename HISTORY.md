@@ -102,6 +102,13 @@ From original plan (gleaming-stirring-tulip.md):
 - [ ] Windows autostart (registry / Startup folder)
 - [ ] Encrypt API key via DPAPI (`ProtectedData.Protect`) — currently stored plain text in settings.json
 
+OpenAI gpt-4o-transcribe — лимиты (для будущей обработки длинных файлов):
+- Максимальный размер файла: **25 MB**
+- Максимальная длительность: **1500 секунд (25 минут)**
+- Для аудио > 30 секунд рекомендуется `chunking_strategy: "auto"` (VAD на стороне сервера)
+- [ ] Добавить проверку: если файл > 25 MB или запись > 25 мин — нарезать локально на чанки
+- [ ] Рассмотреть передачу `chunking_strategy: "auto"` для улучшения точности транскрибации
+
 New issues discovered during MVP:
 - [ ] Hotkey system only supports Ctrl/Shift; Alt removed due to Windows menu-bar activation side effect — needs a better hotkey design
 - [ ] Ctrl+Shift can trigger keyboard layout switch — default is Ctrl+Space, but user should be warned
@@ -110,6 +117,7 @@ New issues discovered during MVP:
 - [ ] Overlay has no animation
 - [ ] Hook-based workaround for Space key suppression is fragile — should be redesigned
 - [ ] Shift-up injection before paste is a workaround — proper fix: event-driven modifier-release tracking in HotkeyService
+- [ ] **PushToTalk stop bug**: если отпустить Ctrl раньше Space — запись не останавливается. В HotkeyService стоп-триггер требует оба модификатора, но при раздельном отпускании состояние `_ctrl` сбрасывается раньше, чем приходит key-up Space. Нужно отслеживать "все клавиши хоткея были зажаты" и триггерить стоп при отпускании любой из них.
 - [ ] **Overlay modes (user choice in Settings):**
   - *Icon mode* (current) — small animated indicator while recording, disappears after paste
   - *Text strip mode* — overlay shows a live text bar where transcribed words appear as the user speaks, using OpenAI Realtime API (WebSocket, `gpt-4o-realtime-preview`). After recording stops, the final text is pasted as usual. Gives real-time visual feedback without the complexity of incrementally updating the target app's text field.

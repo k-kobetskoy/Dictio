@@ -101,7 +101,8 @@ public partial class App : Application
             Logger.Log($"Recording too short ({duration.TotalSeconds:F1}s < {MinRecordingDuration.TotalSeconds}s), discarding.");
             return;
         }
-        Logger.Log($"Audio ready: {stream.Length} bytes, starting transcription (model={_settings.ModelId})");
+        long expectedPcmBytes = (long)(duration.TotalSeconds * 16000 * 2);
+        Logger.Log($"Audio ready: {stream.Length} bytes (expected ~{expectedPcmBytes + 44} for {duration.TotalSeconds:F1}s), starting transcription (model={_settings.ModelId})");
         try
         {
             var text = await _transcription!.TranscribeAsync(stream);
