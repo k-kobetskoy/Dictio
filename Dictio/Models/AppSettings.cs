@@ -1,10 +1,12 @@
 using System.IO;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
-using System.Windows.Input;
 
 namespace Dictio.Models;
 
 public enum HotkeyMode { Toggle, PushToTalk }
+public enum TranscriptionLanguage { English, Russian, Ukrainian }
 
 public class AppSettings
 {
@@ -12,20 +14,61 @@ public class AppSettings
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
         "Dictio", "settings.json");
 
+    private static readonly Dictionary<TranscriptionLanguage, string> DefaultPrompts = new()
+    {
+        [TranscriptionLanguage.English] =
+            "Hello. Today I want to go over a few important things. " +
+            "First, let's look at the main idea — it's quite straightforward. " +
+            "We have several options available, and each one has its own advantages. " +
+            "The key point here is clarity of expression.",
+
+        [TranscriptionLanguage.Russian] =
+            "Привет. Сегодня я хочу рассказать о нескольких важных вещах. " +
+            "Во-первых, давайте разберём основную идею — она достаточно проста. " +
+            "У нас есть несколько вариантов, и у каждого свои преимущества. " +
+            "Главное здесь — чёткость изложения.",
+
+        [TranscriptionLanguage.Ukrainian] =
+            "Привіт. Сьогодні я хочу розповісти про кілька важливих речей. " +
+            "По-перше, давайте розберемо основну ідею — вона досить проста. " +
+            "У нас є кілька варіантів, і кожен має свої переваги. " +
+            "Головне тут — чіткість викладу.",
+    };
+
+    // In-memory plain text — never written to disk directly
     public string OpenAiApiKey { get; set; } = "";
-    public string ModelId { get; set; } = "whisper-1";
     public HotkeyMode HotkeyMode { get; set; } = HotkeyMode.Toggle;
-    public Key HotkeyKey { get; set; } = Key.Space;
-    public bool HotkeyCtrl { get; set; } = true;
-    public bool HotkeyShift { get; set; } = false;
     public int AudioDeviceIndex { get; set; } = 0;
+    public bool FirstLaunchDone { get; set; } = false;
+    public TranscriptionLanguage TranscriptionLanguage { get; set; } = TranscriptionLanguage.English;
+    public string CustomTranscriptionPrompt { get; set; } = "";
+
+    // Returns custom prompt if set, otherwise the default for the selected language
+    public string EffectivePrompt =>
+        string.IsNullOrWhiteSpace(CustomTranscriptionPrompt)
+            ? DefaultPrompts[TranscriptionLanguage]
+            : CustomTranscriptionPrompt;
+
+    public static string GetDefaultPrompt(TranscriptionLanguage lang) => DefaultPrompts[lang];
 
     public static AppSettings Load()
     {
         try
         {
-            if (File.Exists(SettingsPath))
-                return JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(SettingsPath)) ?? new AppSettings();
+            if (!File.Exists(SettingsPath)) return new AppSettings();
+            var stored = JsonSerializer.Deserialize<StoredSettings>(File.ReadAllText(SettingsPath))
+                         ?? new StoredSettings();
+            var settings = new AppSettings
+            {
+                HotkeyMode = stored.HotkeyMode,
+                AudioDeviceIndex = stored.AudioDeviceIndex,
+                FirstLaunchDone = stored.FirstLaunchDone,
+                TranscriptionLanguage = stored.TranscriptionLanguage,
+                CustomTranscriptionPrompt = stored.CustomTranscriptionPrompt,
+            };
+            if (!string.IsNullOrEmpty(stored.OpenAiApiKeyEncrypted))
+                settings.OpenAiApiKey = Decrypt(stored.OpenAiApiKeyEncrypted);
+            return settings;
         }
         catch { }
         return new AppSettings();
@@ -36,8 +79,45 @@ public class AppSettings
         try
         {
             Directory.CreateDirectory(Path.GetDirectoryName(SettingsPath)!);
-            File.WriteAllText(SettingsPath, JsonSerializer.Serialize(this, new JsonSerializerOptions { WriteIndented = true }));
+            var stored = new StoredSettings
+            {
+                OpenAiApiKeyEncrypted = Encrypt(OpenAiApiKey),
+                HotkeyMode = HotkeyMode,
+                AudioDeviceIndex = AudioDeviceIndex,
+                FirstLaunchDone = FirstLaunchDone,
+                TranscriptionLanguage = TranscriptionLanguage,
+                CustomTranscriptionPrompt = CustomTranscriptionPrompt,
+            };
+            File.WriteAllText(SettingsPath, JsonSerializer.Serialize(stored, new JsonSerializerOptions { WriteIndented = true }));
         }
         catch { }
+    }
+
+    private static string Encrypt(string plain)
+    {
+        if (string.IsNullOrEmpty(plain)) return "";
+        var bytes = ProtectedData.Protect(Encoding.UTF8.GetBytes(plain), null, DataProtectionScope.CurrentUser);
+        return Convert.ToBase64String(bytes);
+    }
+
+    private static string Decrypt(string base64)
+    {
+        try
+        {
+            var bytes = ProtectedData.Unprotect(Convert.FromBase64String(base64), null, DataProtectionScope.CurrentUser);
+            return Encoding.UTF8.GetString(bytes);
+        }
+        catch { return ""; }
+    }
+
+    // DTO used only for JSON serialization
+    private class StoredSettings
+    {
+        public string OpenAiApiKeyEncrypted { get; set; } = "";
+        public HotkeyMode HotkeyMode { get; set; } = HotkeyMode.Toggle;
+        public int AudioDeviceIndex { get; set; } = 0;
+        public bool FirstLaunchDone { get; set; } = false;
+        public TranscriptionLanguage TranscriptionLanguage { get; set; } = TranscriptionLanguage.English;
+        public string CustomTranscriptionPrompt { get; set; } = "";
     }
 }

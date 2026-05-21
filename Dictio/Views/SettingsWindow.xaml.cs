@@ -1,7 +1,6 @@
 using NAudio.Wave;
 using System.Windows;
 using System.Windows.Controls;
-using System.Windows.Input;
 using Dictio.Models;
 
 namespace Dictio.Views;
@@ -9,10 +8,12 @@ namespace Dictio.Views;
 public partial class SettingsWindow : Window
 {
     public AppSettings Result { get; private set; }
+    private readonly AppSettings _current;
 
     public SettingsWindow(AppSettings current)
     {
         InitializeComponent();
+        _current = current;
         Result = current;
         Load(current);
     }
@@ -21,11 +22,17 @@ public partial class SettingsWindow : Window
     {
         ApiKeyBox.Password = s.OpenAiApiKey;
         PopulateAudioDevices(s.AudioDeviceIndex);
-        ModelCombo.SelectedIndex = s.ModelId == "gpt-4o-transcribe" ? 1 : 0;
         HotkeyModeCombo.SelectedIndex = s.HotkeyMode == HotkeyMode.PushToTalk ? 1 : 0;
-        CtrlCheck.IsChecked = s.HotkeyCtrl;
-        ShiftCheck.IsChecked = s.HotkeyShift;
-        KeyBox.Text = s.HotkeyKey.ToString();
+
+        LanguageCombo.SelectedIndex = s.TranscriptionLanguage switch
+        {
+            TranscriptionLanguage.Russian => 1,
+            TranscriptionLanguage.Ukrainian => 2,
+            _ => 0
+        };
+
+        CustomPromptBox.Text = s.CustomTranscriptionPrompt;
+        UpdateDefaultPromptPreview();
     }
 
     private void PopulateAudioDevices(int selectedIndex)
@@ -47,17 +54,34 @@ public partial class SettingsWindow : Window
         AudioDeviceCombo.SelectedIndex = selectedIndex < count ? selectedIndex : 0;
     }
 
+    private void LanguageCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        UpdateDefaultPromptPreview();
+    }
+
+    private void UpdateDefaultPromptPreview()
+    {
+        if (DefaultPromptPreview == null) return;
+        DefaultPromptPreview.Text = AppSettings.GetDefaultPrompt(SelectedLanguage());
+    }
+
+    private TranscriptionLanguage SelectedLanguage() => LanguageCombo.SelectedIndex switch
+    {
+        1 => TranscriptionLanguage.Russian,
+        2 => TranscriptionLanguage.Ukrainian,
+        _ => TranscriptionLanguage.English
+    };
+
     private void Save_Click(object sender, RoutedEventArgs e)
     {
         Result = new AppSettings
         {
             OpenAiApiKey = ApiKeyBox.Password,
             AudioDeviceIndex = (AudioDeviceCombo.SelectedItem as ComboBoxItem)?.Tag is int idx ? idx : 0,
-            ModelId = (ModelCombo.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "whisper-1",
             HotkeyMode = HotkeyModeCombo.SelectedIndex == 1 ? HotkeyMode.PushToTalk : HotkeyMode.Toggle,
-            HotkeyCtrl = CtrlCheck.IsChecked == true,
-            HotkeyShift = ShiftCheck.IsChecked == true,
-            HotkeyKey = Enum.TryParse<Key>(KeyBox.Text, true, out var k) ? k : Key.Space,
+            TranscriptionLanguage = SelectedLanguage(),
+            CustomTranscriptionPrompt = CustomPromptBox.Text.Trim(),
+            FirstLaunchDone = _current.FirstLaunchDone,
         };
         DialogResult = true;
     }

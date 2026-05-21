@@ -1,15 +1,16 @@
 using Dictio.Models;
 using Dictio.Services;
 using Dictio.Views;
+using System.ClientModel;
 using System.Drawing;
 using System.IO;
+using System.Net.Http;
 using System.Windows;
 using System.Windows.Forms;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Runtime.InteropServices;
 using Application = System.Windows.Application;
-using MessageBox = System.Windows.MessageBox;
 
 namespace Dictio;
 
@@ -34,20 +35,28 @@ public partial class App : Application
         base.OnStartup(e);
         ShutdownMode = ShutdownMode.OnExplicitShutdown;
         Logger.Log("=== Dictio started ===");
-        Logger.Log($"Settings loaded: model={_settings.ModelId}, device={_settings.AudioDeviceIndex}, hotkey={(_settings.HotkeyCtrl?"Ctrl+":"")}{(_settings.HotkeyShift?"Shift+":"")}{_settings.HotkeyKey}, mode={_settings.HotkeyMode}");
+        Logger.Log($"Settings loaded: device={_settings.AudioDeviceIndex}, mode={_settings.HotkeyMode}");
 
         _audio = new AudioRecorderService();
-        _transcription = new TranscriptionService(() => _settings.OpenAiApiKey, () => _settings.ModelId);
+        _transcription = new TranscriptionService(() => _settings.OpenAiApiKey);
         _overlay = new OverlayWindow();
 
         SetupTray();
         SetupHotkey();
+
+        if (!_settings.FirstLaunchDone)
+        {
+            new WelcomeWindow().ShowDialog();
+            _settings.FirstLaunchDone = true;
+            _settings.Save();
+        }
     }
 
     private void SetupTray()
     {
         var menu = new ContextMenuStrip();
         menu.Items.Add("Settings", null, (_, _) => OpenSettings());
+        menu.Items.Add("Debug", null, (_, _) => OpenDebug());
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add("Exit", null, (_, _) => Shutdown());
 
@@ -85,29 +94,35 @@ public partial class App : Application
         _recordingStarted = DateTime.UtcNow;
         Logger.Log($"Recording started (device={_settings.AudioDeviceIndex}, target=0x{_targetWindow:X8})");
         _audio!.Start(_settings.AudioDeviceIndex);
-        _overlay!.Show();
+        _overlay!.ShowRecording();
     }
 
     private async Task StopRecordingAsync()
     {
         if (!_recording) return;
         _recording = false;
-        _overlay!.Hide();
         var duration = DateTime.UtcNow - _recordingStarted;
         Logger.Log($"Recording stopped after {duration.TotalSeconds:F1}s, waiting for audio flush...");
         var stream = await Task.Run(() => _audio!.Stop());
         if (duration < MinRecordingDuration)
         {
             Logger.Log($"Recording too short ({duration.TotalSeconds:F1}s < {MinRecordingDuration.TotalSeconds}s), discarding.");
+            _overlay!.Hide();
             return;
         }
         long expectedPcmBytes = (long)(duration.TotalSeconds * 16000 * 2);
-        Logger.Log($"Audio ready: {stream.Length} bytes (expected ~{expectedPcmBytes + 44} for {duration.TotalSeconds:F1}s), starting transcription (model={_settings.ModelId})");
+        Logger.Log($"Audio ready: {stream.Length} bytes (expected ~{expectedPcmBytes + 44} for {duration.TotalSeconds:F1}s), starting transcription");
+        AudioArchive.Save(stream);
+        _overlay!.ShowTranscribing();
         try
         {
-            var text = await _transcription!.TranscribeAsync(stream);
+            var text = await _transcription!.TranscribeAsync(stream, _settings.EffectivePrompt);
             Logger.Log($"Transcription result: \"{text}\"");
-            if (!string.IsNullOrWhiteSpace(text))
+            if (text == null)
+            {
+                // Rejected by logprob threshold — already logged inside TranscriptionService
+            }
+            else if (!string.IsNullOrWhiteSpace(text))
             {
                 if (_targetWindow != IntPtr.Zero)
                 {
@@ -120,8 +135,17 @@ public partial class App : Application
         catch (Exception ex)
         {
             Logger.Log($"Transcription ERROR: {ex.GetType().Name}: {ex.Message}");
-            MessageBox.Show($"Transcription failed:\n{ex.Message}", "Dictio", MessageBoxButton.OK, MessageBoxImage.Error);
+            new ErrorPopup(GetUserFriendlyError(ex)).ShowDialog();
         }
+        finally
+        {
+            _overlay.Hide();
+        }
+    }
+
+    private void OpenDebug()
+    {
+        new DebugWindow(_transcription!, _settings).Show();
     }
 
     private void OpenSettings()
@@ -154,6 +178,25 @@ public partial class App : Application
 
         var bmp = new Bitmap(ms);
         return Icon.FromHandle(bmp.GetHicon());
+    }
+
+    private static string GetUserFriendlyError(Exception ex)
+    {
+        if (ex is HttpRequestException || ex is TaskCanceledException)
+            return "No internet connection. Check your network and try again.";
+
+        if (ex is ClientResultException apiEx)
+        {
+            return apiEx.Status switch
+            {
+                401 => "Invalid API key — open Settings to update it.",
+                429 => "OpenAI rate limit reached, try again later.",
+                >= 500 => $"OpenAI service error (HTTP {apiEx.Status}).",
+                _ => $"API error (HTTP {apiEx.Status})."
+            };
+        }
+
+        return ex.Message;
     }
 
     protected override void OnExit(ExitEventArgs e)
