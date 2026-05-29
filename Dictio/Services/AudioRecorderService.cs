@@ -13,6 +13,9 @@ public class AudioRecorderService : IDisposable
 
     public bool IsRecording => _waveIn != null;
 
+    // Fires at ~10 Hz (each NAudio buffer callback) with RMS normalized to [0, 1].
+    public event Action<float>? LevelChanged;
+
     public void Start(int deviceIndex = 0)
     {
         _chunkCount = 0;
@@ -26,8 +29,24 @@ public class AudioRecorderService : IDisposable
             _chunkCount++;
             _totalBytesFromCallback += e.BytesRecorded;
             _writer.Write(e.Buffer, 0, e.BytesRecorded);
+            LevelChanged?.Invoke(ComputeRms(e.Buffer, e.BytesRecorded));
         };
         _waveIn.StartRecording();
+    }
+
+    // RMS of 16-bit signed PCM, normalized to [0, 1].
+    private static float ComputeRms(byte[] buffer, int bytesRecorded)
+    {
+        int samples = bytesRecorded / 2;
+        if (samples == 0) return 0f;
+        double sum = 0;
+        for (int i = 0; i < bytesRecorded; i += 2)
+        {
+            short s = (short)(buffer[i] | (buffer[i + 1] << 8));
+            double v = s / 32768.0;
+            sum += v * v;
+        }
+        return (float)Math.Sqrt(sum / samples);
     }
 
     public MemoryStream Stop()

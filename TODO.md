@@ -1,9 +1,8 @@
 # Dictio — TODO
 
-## В работе
+Активный план разработки: **[.planning/task_plan.md](.planning/task_plan.md)**
 
-### 1. chunking_strategy controls в Debug окне
-**Что:** добавить слайдеры/поля для `prefix_padding_ms` и `silence_duration_ms` в `DebugWindow`,
-чтобы при повторной транскрипции можно было быстро перебирать параметры VAD и смотреть на результат.  
-**Статус:** SDK 2.10.0 не экспонирует `chunking_strategy` в `AudioTranscriptionOptions` — нужно либо ждать новой версии SDK, либо передавать через raw JSON запрос.  
-**Где:** `Views/DebugWindow.xaml/.cs`, `Services/TranscriptionService.cs`
+- Прогресс: [.planning/progress.md](.planning/progress.md)
+- Исследования: [.planning/findings.md](.planning/findings.md)
+
+**Сейчас:** ревью [.planning/phase-ui-foundation.md](.planning/phase-ui-foundation.md) → затем Шаги 0–3 (WPF-UI + tray + overlay).

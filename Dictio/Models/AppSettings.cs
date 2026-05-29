@@ -6,7 +6,8 @@ using System.Text.Json;
 namespace Dictio.Models;
 
 public enum HotkeyMode { Toggle, PushToTalk }
-public enum TranscriptionLanguage { English, Russian, Ukrainian }
+public enum TranscriptionLanguage { English, Russian, Ukrainian, Auto }
+public enum AppColorTheme { System, Light, Dark }
 
 public class AppSettings
 {
@@ -35,13 +36,29 @@ public class AppSettings
             "Головне тут — чіткість викладу.",
     };
 
+    public AppColorTheme Theme { get; set; } = AppColorTheme.System;
+    public string? FontFamily { get; set; } = null;
+    public bool RestoreClipboard { get; set; } = true;
+
     // In-memory plain text — never written to disk directly
     public string OpenAiApiKey { get; set; } = "";
     public HotkeyMode HotkeyMode { get; set; } = HotkeyMode.Toggle;
     public int AudioDeviceIndex { get; set; } = 0;
     public bool FirstLaunchDone { get; set; } = false;
-    public TranscriptionLanguage TranscriptionLanguage { get; set; } = TranscriptionLanguage.English;
+    public TranscriptionLanguage TranscriptionLanguage { get; set; } = TranscriptionLanguage.Auto;
     public string CustomTranscriptionPrompt { get; set; } = "";
+
+    // null = not specified (API uses its default); valid range 0–1
+    public float? TranscriptionTemperature { get; set; } = null;
+
+    // Returns ISO-639-1 code to pass to the API, or null to let the model auto-detect.
+    public string? LanguageCode => TranscriptionLanguage switch
+    {
+        TranscriptionLanguage.English   => "en",
+        TranscriptionLanguage.Russian   => "ru",
+        TranscriptionLanguage.Ukrainian => "uk",
+        _                               => null
+    };
 
     // Returns custom prompt if set, otherwise the default for the selected language
     public string EffectivePrompt =>
@@ -60,11 +77,15 @@ public class AppSettings
                          ?? new StoredSettings();
             var settings = new AppSettings
             {
-                HotkeyMode = stored.HotkeyMode,
-                AudioDeviceIndex = stored.AudioDeviceIndex,
-                FirstLaunchDone = stored.FirstLaunchDone,
-                TranscriptionLanguage = stored.TranscriptionLanguage,
+                HotkeyMode               = stored.HotkeyMode,
+                AudioDeviceIndex         = stored.AudioDeviceIndex,
+                FirstLaunchDone         = stored.FirstLaunchDone,
+                TranscriptionLanguage    = stored.TranscriptionLanguage,
                 CustomTranscriptionPrompt = stored.CustomTranscriptionPrompt,
+                TranscriptionTemperature  = stored.TranscriptionTemperature,
+                Theme = stored.Theme,
+                FontFamily               = stored.FontFamily,
+                RestoreClipboard         = stored.RestoreClipboard,
             };
             if (!string.IsNullOrEmpty(stored.OpenAiApiKeyEncrypted))
                 settings.OpenAiApiKey = Decrypt(stored.OpenAiApiKeyEncrypted);
@@ -81,12 +102,16 @@ public class AppSettings
             Directory.CreateDirectory(Path.GetDirectoryName(SettingsPath)!);
             var stored = new StoredSettings
             {
-                OpenAiApiKeyEncrypted = Encrypt(OpenAiApiKey),
-                HotkeyMode = HotkeyMode,
-                AudioDeviceIndex = AudioDeviceIndex,
-                FirstLaunchDone = FirstLaunchDone,
-                TranscriptionLanguage = TranscriptionLanguage,
+                OpenAiApiKeyEncrypted    = Encrypt(OpenAiApiKey),
+                HotkeyMode               = HotkeyMode,
+                AudioDeviceIndex         = AudioDeviceIndex,
+                FirstLaunchDone         = FirstLaunchDone,
+                TranscriptionLanguage    = TranscriptionLanguage,
                 CustomTranscriptionPrompt = CustomTranscriptionPrompt,
+                TranscriptionTemperature  = TranscriptionTemperature,
+                Theme = Theme,
+                FontFamily               = FontFamily,
+                RestoreClipboard         = RestoreClipboard,
             };
             File.WriteAllText(SettingsPath, JsonSerializer.Serialize(stored, new JsonSerializerOptions { WriteIndented = true }));
         }
@@ -117,7 +142,13 @@ public class AppSettings
         public HotkeyMode HotkeyMode { get; set; } = HotkeyMode.Toggle;
         public int AudioDeviceIndex { get; set; } = 0;
         public bool FirstLaunchDone { get; set; } = false;
-        public TranscriptionLanguage TranscriptionLanguage { get; set; } = TranscriptionLanguage.English;
+        public TranscriptionLanguage TranscriptionLanguage { get; set; } = TranscriptionLanguage.Auto;
         public string CustomTranscriptionPrompt { get; set; } = "";
+        public float? TranscriptionTemperature { get; set; } = null;
+        public AppColorTheme Theme { get; set; } = AppColorTheme.System;
+        public string? FontFamily { get; set; } = null;
+        public bool RestoreClipboard { get; set; } = true;
     }
 }
+
+

@@ -1,0 +1,153 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <!-- Colours -->
+    <SolidColorBrush x:Key="Menu.Background"        Color="#1e2330"/>
+    <SolidColorBrush x:Key="Menu.Border"            Color="#2d3748"/>
+    <SolidColorBrush x:Key="Menu.Foreground"        Color="#e2e8f0"/>
+    <SolidColorBrush x:Key="Menu.Foreground.Muted"  Color="#94a3b8"/>
+    <SolidColorBrush x:Key="Menu.Item.Hover"        Color="#2d3748"/>
+    <SolidColorBrush x:Key="Menu.Item.Checked"      Color="#3b82f6"/>
+
+    <!-- Geometry for submenu arrow -->
+    <Geometry x:Key="SubArrow">M 0 0 L 4 4 L 0 8</Geometry>
+    <!-- Geometry for checkmark -->
+    <Geometry x:Key="CheckMark">M 1 5 L 3.5 7.5 L 8 2</Geometry>
+
+    <!-- ── ContextMenu ──────────────────────────────────────────────────────── -->
+    <Style TargetType="{x:Type ContextMenu}">
+        <Setter Property="OverridesDefaultStyle" Value="True"/>
+        <Setter Property="SnapsToDevicePixels"   Value="True"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="{x:Type ContextMenu}">
+                    <Border x:Name="Root"
+                            Background="{StaticResource Menu.Background}"
+                            BorderBrush="{StaticResource Menu.Border}"
+                            BorderThickness="1"
+                            CornerRadius="10"
+                            Padding="0,5"
+                            MinWidth="160">
+                        <Border.Effect>
+                            <DropShadowEffect Color="Black" BlurRadius="24"
+                                              ShadowDepth="6" Opacity="0.45"
+                                              Direction="270"/>
+                        </Border.Effect>
+                        <ItemsPresenter/>
+                    </Border>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- ── Separator ────────────────────────────────────────────────────────── -->
+    <Style TargetType="{x:Type Separator}">
+        <Setter Property="OverridesDefaultStyle" Value="True"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="{x:Type Separator}">
+                    <Border BorderThickness="0,1,0,0"
+                            BorderBrush="{StaticResource Menu.Border}"
+                            Margin="8,3"/>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- ── MenuItem ─────────────────────────────────────────────────────────── -->
+    <Style TargetType="{x:Type MenuItem}">
+        <Setter Property="OverridesDefaultStyle" Value="True"/>
+        <Setter Property="SnapsToDevicePixels"   Value="True"/>
+        <Setter Property="Foreground"            Value="{StaticResource Menu.Foreground}"/>
+        <Setter Property="Background"            Value="Transparent"/>
+        <Setter Property="Height"                Value="34"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="{x:Type MenuItem}">
+                    <Grid>
+                        <!-- Hit area + highlight background -->
+                        <Border x:Name="Highlight"
+                                Background="Transparent"
+                                CornerRadius="6"
+                                Margin="5,1"/>
+
+                        <!-- Content row -->
+                        <Grid Margin="14,0,10,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="16"/>   <!-- checkmark -->
+                                <ColumnDefinition Width="6"/>    <!-- gap -->
+                                <ColumnDefinition Width="*"/>    <!-- header -->
+                                <ColumnDefinition Width="Auto"/> <!-- submenu arrow -->
+                            </Grid.ColumnDefinitions>
+
+                            <!-- Checkmark (visible only when IsChecked) -->
+                            <Path x:Name="CheckIcon" Grid.Column="0"
+                                  Data="{StaticResource CheckMark}"
+                                  Stroke="{StaticResource Menu.Item.Checked}"
+                                  StrokeThickness="1.5" StrokeLineJoin="Round"
+                                  VerticalAlignment="Center"
+                                  Visibility="Collapsed"/>
+
+                            <!-- Label -->
+                            <ContentPresenter Grid.Column="2"
+                                              ContentSource="Header"
+                                              VerticalAlignment="Center"
+                                              RecognizesAccessKey="True"
+                                              TextBlock.Foreground="{TemplateBinding Foreground}"
+                                              TextBlock.FontSize="13"/>
+
+                            <!-- Submenu arrow -->
+                            <Path x:Name="SubArrowIcon" Grid.Column="3"
+                                  Data="{StaticResource SubArrow}"
+                                  Stroke="{StaticResource Menu.Foreground.Muted}"
+                                  StrokeThickness="1.5" StrokeLineJoin="Round"
+                                  VerticalAlignment="Center"
+                                  Visibility="Collapsed"/>
+                        </Grid>
+
+                        <!-- Submenu Popup -->
+                        <Popup x:Name="PART_Popup"
+                               AllowsTransparency="True"
+                               Placement="Right"
+                               VerticalOffset="-6"
+                               HorizontalOffset="2"
+                               IsOpen="{Binding IsSubmenuOpen, RelativeSource={RelativeSource TemplatedParent}}"
+                               PopupAnimation="Fade"
+                               Focusable="False">
+                            <Border Background="{StaticResource Menu.Background}"
+                                    BorderBrush="{StaticResource Menu.Border}"
+                                    BorderThickness="1"
+                                    CornerRadius="10"
+                                    Padding="0,5"
+                                    MinWidth="160">
+                                <Border.Effect>
+                                    <DropShadowEffect Color="Black" BlurRadius="24"
+                                                      ShadowDepth="6" Opacity="0.45"
+                                                      Direction="270"/>
+                                </Border.Effect>
+                                <ItemsPresenter/>
+                            </Border>
+                        </Popup>
+                    </Grid>
+
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsHighlighted" Value="True">
+                            <Setter TargetName="Highlight" Property="Background"
+                                    Value="{StaticResource Menu.Item.Hover}"/>
+                        </Trigger>
+                        <Trigger Property="HasItems" Value="True">
+                            <Setter TargetName="SubArrowIcon" Property="Visibility" Value="Visible"/>
+                        </Trigger>
+                        <Trigger Property="IsChecked" Value="True">
+                            <Setter TargetName="CheckIcon" Property="Visibility" Value="Visible"/>
+                        </Trigger>
+                        <Trigger Property="IsEnabled" Value="False">
+                            <Setter Property="Foreground" Value="{StaticResource Menu.Foreground.Muted}"/>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+</ResourceDictionary>

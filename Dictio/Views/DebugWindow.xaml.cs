@@ -45,11 +45,19 @@ public partial class DebugWindow : Window
         StatusText.Text = "Transcribing…";
         ResultBox.Text = "";
 
+        int? prefixMs = int.TryParse(PrefixPaddingBox.Text, out var p) ? p : null;
+        int? silenceMs = int.TryParse(SilenceDurationBox.Text, out var s) ? s : null;
+        float? temperature = float.TryParse(TemperatureBox.Text,
+            System.Globalization.NumberStyles.Float,
+            System.Globalization.CultureInfo.InvariantCulture, out var t)
+            ? t
+            : _settings.TranscriptionTemperature;
+
         try
         {
             var bytes = await Task.Run(() => File.ReadAllBytes(entry.File.FullName));
             using var stream = new MemoryStream(bytes);
-            var result = await _transcription.TranscribeAsync(stream, _settings.EffectivePrompt);
+            var result = await _transcription.TranscribeAsync(stream, prompt: null, prefixMs, silenceMs, temperature);
 
             if (result == null)
             {

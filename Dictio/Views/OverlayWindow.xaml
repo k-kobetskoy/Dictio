@@ -1,29 +1,90 @@
 <Window x:Class="Dictio.Views.OverlayWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title=""
-        Width="60" Height="60"
-        WindowStyle="None"
-        AllowsTransparency="True"
-        Background="Transparent"
-        ShowInTaskbar="False"
-        Topmost="True"
-        ResizeMode="NoResize"
-        IsHitTestVisible="False">
-    <Grid>
-        <Ellipse Width="44" Height="44"
-                 HorizontalAlignment="Center"
-                 VerticalAlignment="Center">
-            <Ellipse.Fill>
-                <SolidColorBrush Color="#CCFF3B30"/>
-            </Ellipse.Fill>
-            <Ellipse.Effect>
-                <DropShadowEffect Color="#FF3B30" BlurRadius="12" ShadowDepth="0" Opacity="0.8"/>
-            </Ellipse.Effect>
-        </Ellipse>
-        <Ellipse Width="16" Height="16"
-                 Fill="White"
-                 HorizontalAlignment="Center"
-                 VerticalAlignment="Center"/>
+        Title="" Width="101" Height="48"
+        Style="{x:Null}"
+        WindowStyle="None" AllowsTransparency="True" Background="Transparent"
+        ShowInTaskbar="False" Topmost="True" ResizeMode="NoResize"
+        MouseEnter="OnWindowMouseEnter" MouseLeave="OnWindowMouseLeave">
+
+    <Grid Background="Transparent">
+        <!-- ── S0: Collapsed strip (always visible by default) ─────────────────── -->
+        <Grid x:Name="StateCollapsed" HorizontalAlignment="Center" VerticalAlignment="Center">
+            <Border Width="51" Height="7" CornerRadius="3.5"
+                    Background="#99232932" BorderBrush="#99455060" BorderThickness="1"/>
+        </Grid>
+
+        <!-- ── S1: Idle pill — click to record ───────────────────────────────── -->
+        <Grid x:Name="StateIdle" Visibility="Collapsed"
+              HorizontalAlignment="Center" VerticalAlignment="Center">
+            <Button Click="OnRecordButtonClicked" Cursor="Hand"
+                    Background="Transparent" BorderThickness="0">
+                <Button.Template>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Pill" Width="51" Height="28" CornerRadius="14"
+                                Background="#99232932">
+                            <!-- Mic icon path from Assets/Icons/hover-mic-icon.svg (11.5×15.5 viewBox) -->
+                            <Path Width="12" Height="16" Fill="#DCE2E3" Stretch="Uniform"
+                                  HorizontalAlignment="Center" VerticalAlignment="Center"
+                                  Data="M5 14.75V13.3496C3.75586 13.1887 2.5898 12.6323 1.68945 11.75C0.609666 10.6917 0 9.25329 0 7.75V6.34961C0.000210979 5.93558 0.335917 5.59961 0.75 5.59961C1.16408 5.59961 1.49979 5.93558 1.5 6.34961V7.75C1.5 8.84556 1.94404 9.89924 2.73926 10.6787C3.53518 11.4587 4.618 11.9004 5.75 11.9004C6.882 11.9004 7.96482 11.4587 8.76074 10.6787C9.55596 9.89924 10 8.84556 10 7.75V6.34961C10.0002 5.93558 10.3359 5.59961 10.75 5.59961C11.1641 5.59961 11.4998 5.93558 11.5 6.34961V7.75C11.5 9.25329 10.8903 10.6917 9.81055 11.75C8.9102 12.6323 7.74414 13.1887 6.5 13.3496V14.75C6.5 15.1642 6.16421 15.5 5.75 15.5C5.33579 15.5 5 15.1642 5 14.75ZM8.64258 7.75C8.64258 9.33822 7.33332 10.5996 5.75 10.5996C4.16668 10.5996 2.85742 9.33822 2.85742 7.75V2.84961C2.85764 1.26157 4.16681 0 5.75 0C7.33319 0 8.64236 1.26157 8.64258 2.84961V7.75Z"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Pill" Property="Background" Value="#992d3642"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="Pill" Property="Background" Value="#991a222c"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Button.Template>
+            </Button>
+        </Grid>
+
+        <!-- ── S2: Recording — red dot + 4 dynamic equalizer slots + send button ── -->
+        <Grid x:Name="StateRecordingSilent" Visibility="Collapsed"
+              HorizontalAlignment="Center" VerticalAlignment="Center">
+            <Border Width="81" Height="28" CornerRadius="14" Background="#99232932" ClipToBounds="True">
+                <Canvas Width="81" Height="28">
+                    <!-- recording indicator dot at cx=13,cy=14,r=5 -->
+                    <Ellipse Width="10" Height="10" Fill="#F44649" Canvas.Left="8" Canvas.Top="9"/>
+                    <!-- 4 equalizer slots at x=24,32,40,48 — heights updated by SetLevel (~10 Hz) -->
+                    <Rectangle x:Name="EqBar0" Width="4" Height="4" RadiusX="2" RadiusY="2" Fill="#D9D9D9" Opacity="0.43" Canvas.Left="24" Canvas.Top="12"/>
+                    <Rectangle x:Name="EqBar1" Width="4" Height="4" RadiusX="2" RadiusY="2" Fill="#D9D9D9" Opacity="0.43" Canvas.Left="32" Canvas.Top="12"/>
+                    <Rectangle x:Name="EqBar2" Width="4" Height="4" RadiusX="2" RadiusY="2" Fill="#D9D9D9" Opacity="0.43" Canvas.Left="40" Canvas.Top="12"/>
+                    <Rectangle x:Name="EqBar3" Width="4" Height="4" RadiusX="2" RadiusY="2" Fill="#D9D9D9" Opacity="0.43" Canvas.Left="48" Canvas.Top="12"/>
+                    <!-- send button: circle cx=67,cy=14,r=9 + arrow -->
+                    <Ellipse Width="18" Height="18" Fill="#D9D9D9" Canvas.Left="58" Canvas.Top="5" IsHitTestVisible="False"/>
+                    <!-- Arrow icon path from Assets/Icons/record-arrow-icon.svg (10×10 viewBox) -->
+                    <Path Width="10" Height="10" Fill="#1A2029" Stretch="Uniform"
+                          Canvas.Left="62" Canvas.Top="9" IsHitTestVisible="False"
+                          Data="M4.44184 0.231234C4.75015 -0.0770781 5.24991 -0.0770781 5.55822 0.231234L9.76877 4.44181C10.0771 4.75012 10.0771 5.24988 9.76877 5.55819L5.55822 9.76877C5.24991 10.0771 4.75015 10.0771 4.44184 9.76877C4.13353 9.46045 4.13353 8.9607 4.44184 8.65239L7.30473 5.78948H0.789478C0.353462 5.78948 0 5.43602 0 5C0 4.56398 0.353462 4.21052 0.789478 4.21052H7.30473L4.44184 1.34761C4.13353 1.0393 4.13353 0.539546 4.44184 0.231234Z"/>
+                    <!-- Transparent hit-test button exactly over the send circle -->
+                    <Button Canvas.Left="58" Canvas.Top="5" Width="18" Height="18"
+                            Background="Transparent" BorderThickness="0" Cursor="Hand"
+                            Click="OnSendButtonClicked">
+                        <Button.Template>
+                            <ControlTemplate TargetType="Button"><ContentPresenter/></ControlTemplate>
+                        </Button.Template>
+                    </Button>
+                </Canvas>
+            </Border>
+        </Grid>
+
+        <!-- ── S4: Processing — 3 pulsing dots ───────────────────────────────── -->
+        <Grid x:Name="StateProcessing" Visibility="Collapsed"
+              HorizontalAlignment="Center" VerticalAlignment="Center">
+            <Border Width="81" Height="28" CornerRadius="14" Background="#99232932" ClipToBounds="True">
+                <Canvas Width="81" Height="28">
+                    <!-- dots from Assets/Icons/processing-audio-together.svg cx=21,41,61 cy=14 r=5 -->
+                    <Ellipse x:Name="ProcDot1" Width="10" Height="10" Fill="#BFBFBF"
+                             Canvas.Left="16" Canvas.Top="9"/>
+                    <Ellipse x:Name="ProcDot2" Width="10" Height="10" Fill="#747474"
+                             Canvas.Left="36" Canvas.Top="9"/>
+                    <Ellipse x:Name="ProcDot3" Width="10" Height="10" Fill="#747474" Opacity="0.5"
+                             Canvas.Left="56" Canvas.Top="9"/>
+                </Canvas>
+            </Border>
+        </Grid>
     </Grid>
 </Window>

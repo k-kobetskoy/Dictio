@@ -1,0 +1,11 @@
+<svg width="81" height="28" viewBox="0 0 81 28" fill="none" xmlns="http://www.w3.org/2000/svg">
+<rect width="81" height="28" rx="14" fill="#232932"/>
+<circle cx="13" cy="14" r="5" fill="#F44649"/>
+<rect x="50" y="12" width="4" height="4" rx="2" fill="#D9D9D9" fill-opacity="0.43"/>
+<rect x="43" y="12" width="4" height="4" rx="2" fill="#D9D9D9" fill-opacity="0.43"/>
+<rect x="36" y="12" width="4" height="4" rx="2" fill="#D9D9D9" fill-opacity="0.43"/>
+<rect x="29" y="12" width="4" height="4" rx="2" fill="#D9D9D9" fill-opacity="0.43"/>
+<rect x="22" y="12" width="4" height="4" rx="2" fill="#D9D9D9" fill-opacity="0.43"/>
+<circle cx="67" cy="14" r="9" fill="#D9D9D9"/>
+<path d="M66.4418 9.23123C66.7502 8.92292 67.2499 8.92292 67.5582 9.23123L71.7688 13.4418C72.0771 13.7501 72.0771 14.2499 71.7688 14.5582L67.5582 18.7688C67.2499 19.0771 66.7502 19.0771 66.4418 18.7688C66.1335 18.4605 66.1335 17.9607 66.4418 17.6524L69.3047 14.7895H62.7895C62.3535 14.7895 62 14.436 62 14C62 13.564 62.3535 13.2105 62.7895 13.2105H69.3047L66.4418 10.3476C66.1335 10.0393 66.1335 9.53955 66.4418 9.23123Z" fill="#232932"/>
+</svg>

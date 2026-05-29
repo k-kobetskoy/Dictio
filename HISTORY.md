@@ -118,6 +118,8 @@ New issues discovered during MVP:
 - [ ] Hook-based workaround for Space key suppression is fragile — should be redesigned
 - [ ] Shift-up injection before paste is a workaround — proper fix: event-driven modifier-release tracking in HotkeyService
 - [ ] **PushToTalk stop bug**: если отпустить Ctrl раньше Space — запись не останавливается. В HotkeyService стоп-триггер требует оба модификатора, но при раздельном отпускании состояние `_ctrl` сбрасывается раньше, чем приходит key-up Space. Нужно отслеживать "все клавиши хоткея были зажаты" и триггерить стоп при отпускании любой из них.
+- [ ] **Cold start lag**: первая запись после запуска приложения стартует с задержкой ~1 сек (индикатор появляется позже). Последующие записи моментальные. Вероятно, NAudio инициализирует WaveIn device при первом вызове `Start()`.
+- [ ] **Overlay recording animation**: анимировать индикатор записи в зависимости от громкости — пульсирующий кружок с амплитудой, пропорциональной уровню входящего сигнала с микрофона
 - [ ] **Overlay modes (user choice in Settings):**
   - *Icon mode* (current) — small animated indicator while recording, disappears after paste
   - *Text strip mode* — overlay shows a live text bar where transcribed words appear as the user speaks, using OpenAI Realtime API (WebSocket, `gpt-4o-realtime-preview`). After recording stops, the final text is pasted as usual. Gives real-time visual feedback without the complexity of incrementally updating the target app's text field.
@@ -144,3 +146,91 @@ Views/
   SettingsWindow.xaml/.cs   — API key, model, mic device, hotkey (Ctrl/Shift + key)
   OverlayWindow.xaml/.cs    — WS_EX_NOACTIVATE + WS_EX_TOOLWINDOW floating red circle
 ```
+
+---
+
+### 2026-05-30 — A2: Scrolling equalizer in OverlayWindow
+
+**A2 — Dynamic 4-slot FIFO equalizer**
+
+- `OverlayWindow.xaml`: removed `StateRecordingVoice` (S3). In `StateRecordingSilent` (S2) replaced 5 static silent dots with 4 named `EqBar0..EqBar3` at x=24,32,40,48 (4 px wide, 8 px step).
+- `OverlayWindow.xaml.cs`:
+  - Removed `RecordingVoice` from `OverlayState` enum — S2 and S3 are now a single state.
+  - Added `Queue<float> _rmsHistory` (FIFO, 4 slots) and `WpfRect[] _eqBars` fields.
+  - `ResetEqHistory()` fills the queue with 4 zeros; called in the constructor and every time `SetState(RecordingSilent)` is entered — bars start flat on each new recording.
+  - `SetLevel(float rms)`: dequeues the oldest value, enqueues the new RMS, then calls `UpdateEqBar` for each slot.
+  - `UpdateEqBar`: if `rms < 0.02` → height=4, opacity=0.43 (silent dot); otherwise → `height = min(18, 4 + rms*14)`, opacity=0.72, `Canvas.Top=(28−h)/2` (centered bar).
+  - `SetState()` no longer references `RecordingVoice`.
+  - `using WpfRect = System.Windows.Shapes.Rectangle` alias resolves ambiguity with `System.Drawing.Rectangle` (project uses `UseWindowsForms=true`).
+
+**Files changed:**
+- `Views/OverlayWindow.xaml`
+- `Views/OverlayWindow.xaml.cs`
+
+Build: 0 errors, 0 warnings ✅
+
+---
+
+### 2026-05-30 — A1: RMS level event + A4: smooth processing spinner
+
+**A1 — Volume level passthrough from `AudioRecorderService`**
+
+- `AudioRecorderService`: added `LevelChanged: Action<float>?` event. Fires on every `DataAvailable` callback (~10 Hz at default `BufferMilliseconds=100`). Computes RMS of 16-bit signed PCM, normalised to [0, 1] via `ComputeRms`.
+- `App.xaml.cs`: one-line subscription after overlay creation: `_audio.LevelChanged += level => _overlay.SetLevel(level)`.
+- `OverlayWindow.xaml.cs`: `SetLevel(float rms)` — if state is `RecordingSilent` or `RecordingVoice`, switches between the two at threshold `0.02` (≈ −34 dBFS). Directly toggles only the two relevant `Visibility` values instead of going through the full `SetState` path — avoids unnecessary dot-animation resets at 10 Hz.
+
+**A4 — Smooth record → transcribe transition**
+
+- `StartDotsAnimation()`: first plays a 200 ms `DoubleAnimation(0→1, CubicEase.EaseOut)` on `StateProcessing.Opacity` (the whole spinner container). Dot wave animations get `BeginTime = 200 ms + their own offset` so they start pulsing only after the fade-in completes — the spinner "materialises" as a whole, then starts waving.
+- `SetState(Processing)`: sets `StateProcessing.Opacity = 0` before `Visibility = Visible` to prevent a one-frame flash at full opacity.
+- `StopDotsAnimation()`: added `StateProcessing.BeginAnimation(OpacityProperty, null)` to clear the fade animation and restore opacity when leaving the Processing state.
+
+**Files changed:**
+- `Services/AudioRecorderService.cs` — `LevelChanged` event, `ComputeRms` static method
+- `App.xaml.cs` — one-line subscription
+- `Views/OverlayWindow.xaml.cs` — `VoiceThreshold` const, `SetLevel()`, `SetState` opacity pre-zero, updated `StartDotsAnimation`/`StopDotsAnimation`
+
+Build: 0 errors, 0 warnings ✅
+
+---
+
+### 2026-05-30 — Research sprint 0: R3 (VAD) + R5 (Clipboard)
+
+Planning session only — no code changes.
+
+**R3 — VAD decision:**
+
+- Evaluated: RMS threshold, WebRtcVad.NET, WebRtcVadSharp, Silero ONNX, Picovoice Cobra.
+- **A3 (overlay voice indicator):** RMS threshold in `AudioRecorderService.DataAvailable` — already wired via `LevelChanged`. No additional library needed.
+- **WebRtcVad.NET** (`dotnet add package WebRtcVad.NET`) kept as fallback if RMS produces too many false positives on specific microphones.
+- **Silero VAD excluded** — adds ~20 MB of OnnxRuntime dependencies, not justified.
+- **Epik C (silence trimming, C1–C5) cancelled** — OpenAI Whisper runs server-side VAD; pre-trimming silence is premature optimisation. File size is addressed by compression (R4/epik D). C1–C5 marked `cancelled` in task_plan.md. D1 dependency on C3 removed.
+
+**R5 — Clipboard decision:**
+
+- Windows clipboard requires STA thread — WPF main thread is already STA, no extra threading needed.
+- **v1 restore scope: text only.** Save `Clipboard.GetText()` before `SetText(transcription)`; restore after `SendInput Ctrl+V` + 200 ms delay. Delay is mandatory to avoid race where target app reads restored (old) text instead of transcription.
+- Non-text content (bitmap, file drop, GDI handles, delayed rendering) cannot be reliably restored — fallback is `Clipboard.Clear()`.
+- All `Clipboard.*` calls need retry wrapper (3× × 50 ms) for `COMException` — clipboard is a shared OS resource.
+- Full IDataObject multi-format snapshot deferred to B2+ if users report specific format loss.
+- Alternatives evaluated (SendInput unicode chars, WM_CHAR, UIAutomation) — all inferior to clipboard for dictation use case. Clipboard is the industry standard (Wispr, Talon, Windows Speech Recognition all use it).
+
+**Plan state after this session:**
+
+- Spint 0: all done (R1 ✅ R2 ✅ R3 ✅ R5 ✅).
+- Next: Sprint 1 — A1–A4 (overlay equaliser/spinner) + B1–B3 (clipboard save/restore).
+
+---
+
+### 2026-05-24 — chunking_strategy VAD controls in Debug window
+
+Added `prefix_padding_ms` and `silence_duration_ms` fields to `DebugWindow` for experimenting with VAD parameters during re-transcription.
+
+**Problem:** OpenAI SDK 2.10.0 doesn't expose `chunking_strategy` in `AudioTranscriptionOptions`.
+
+**Solution:** When either VAD field is non-empty, bypass the SDK and send a raw multipart HTTP POST to `/v1/audio/transcriptions` with `chunking_strategy={"type":"server_vad",...}`. Normal (no VAD overrides) transcription still uses the SDK path unchanged.
+
+**Files changed:**
+- `Services/TranscriptionService.cs` — added `TranscribeRawAsync`, refactored `LogAndFilterLogprobs` to accept `string json`, static `HttpClient`
+- `Views/DebugWindow.xaml` — new VAD params row (PrefixPaddingBox, SilenceDurationBox)
+- `Views/DebugWindow.xaml.cs` — reads VAD fields, passes to `TranscribeAsync`

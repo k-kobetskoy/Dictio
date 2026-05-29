@@ -23,6 +23,7 @@
         <Label Content="Transcription Language" FontWeight="SemiBold"/>
         <ComboBox x:Name="LanguageCombo" Margin="0,0,0,4"
                   SelectionChanged="LanguageCombo_SelectionChanged">
+            <ComboBoxItem Content="Auto (detect)" Tag="Auto"/>
             <ComboBoxItem Content="English" Tag="English"/>
             <ComboBoxItem Content="Русский" Tag="Russian"/>
             <ComboBoxItem Content="Українська" Tag="Ukrainian"/>
@@ -50,6 +51,22 @@
         <TextBlock Margin="0,0,0,24" Foreground="#888" FontSize="11" TextWrapping="Wrap">
             Leave empty to use the default prompt above. Enter text here to override it —
             useful for domain-specific terms or names.
+        </TextBlock>
+
+        <!-- Temperature -->
+        <Label Content="Transcription Temperature" FontWeight="SemiBold"/>
+        <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+            <Button Content="▼" Width="26" Click="TempDown_Click"/>
+            <TextBlock x:Name="TemperatureDisplay" Width="36" TextAlignment="Center"
+                       VerticalAlignment="Center" FontSize="13" Margin="4,0"/>
+            <Button Content="▲" Width="26" Click="TempUp_Click"/>
+            <TextBlock VerticalAlignment="Center" Margin="10,0,0,0" Foreground="#888" FontSize="11">
+                шаг 0.1 · – = не задано (API default)
+            </TextBlock>
+        </StackPanel>
+        <TextBlock Margin="0,0,0,24" Foreground="#888" FontSize="11" TextWrapping="Wrap">
+            Выше = больше разнообразия, меньше стабильности.
+            Оставьте «–» если не уверены.
         </TextBlock>
 
         <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">

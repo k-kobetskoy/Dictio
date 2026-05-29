@@ -2,7 +2,6 @@ using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Windows;
 using Application = System.Windows.Application;
-using System.Windows.Input;
 using Dictio.Models;
 
 namespace Dictio.Services;
@@ -19,6 +18,7 @@ public class HotkeyService : IDisposable
     private const int VK_RCONTROL = 0xA3;
     private const int VK_LSHIFT = 0xA0;
     private const int VK_RSHIFT = 0xA1;
+    private const int VK_SPACE = 0x20;
 
     [DllImport("user32.dll", SetLastError = true)]
     private static extern IntPtr SetWindowsHookEx(int idHook, LowLevelKeyboardProc lpfn, IntPtr hMod, uint dwThreadId);
@@ -48,6 +48,7 @@ public class HotkeyService : IDisposable
     private LowLevelKeyboardProc? _proc;
     private readonly Func<AppSettings> _getSettings;
     private bool _hotkeyDown;
+    private bool _spaceEngaged; // Space was consumed on key-down; must consume the matching key-up too
     private bool _ctrl, _shift;
 
     public event Action? HotkeyPressed;
@@ -78,41 +79,41 @@ public class HotkeyService : IDisposable
             bool isDown = wParam == WM_KEYDOWN || wParam == WM_SYSKEYDOWN;
             bool isUp = wParam == WM_KEYUP || wParam == WM_SYSKEYUP;
 
-            if (vk is VK_LCONTROL or VK_RCONTROL) _ctrl = isDown;
-            else if (vk is VK_LSHIFT or VK_RSHIFT) _shift = isDown;
-            else
+            if (vk is VK_LCONTROL or VK_RCONTROL)
             {
-                var s = _getSettings();
-                int expected = KeyInterop.VirtualKeyFromKey(s.HotkeyKey);
-
-                if (vk == expected && _ctrl == s.HotkeyCtrl && _shift == s.HotkeyShift)
+                _ctrl = isDown;
+                // PushToTalk: Ctrl released before Space — still stop recording
+                if (isUp && _hotkeyDown && _getSettings().HotkeyMode == HotkeyMode.PushToTalk)
                 {
-                    if (s.HotkeyMode == HotkeyMode.PushToTalk)
+                    _hotkeyDown = false;
+                    Application.Current.Dispatcher.BeginInvoke(RecordStopPressed);
+                }
+            }
+            else if (vk is VK_LSHIFT or VK_RSHIFT) _shift = isDown;
+            else if (vk == VK_SPACE)
+            {
+                if (isDown && _ctrl && !_hotkeyDown)
+                {
+                    _hotkeyDown = true;
+                    _spaceEngaged = true;
+                    var s = _getSettings();
+                    Application.Current.Dispatcher.BeginInvoke(
+                        s.HotkeyMode == HotkeyMode.PushToTalk ? RecordStartPressed : HotkeyPressed);
+                    return (IntPtr)1;
+                }
+                if (_spaceEngaged)
+                {
+                    if (isUp)
                     {
-                        if (isDown && !_hotkeyDown)
-                        {
-                            _hotkeyDown = true;
-                            Application.Current.Dispatcher.BeginInvoke(RecordStartPressed);
-                        }
-                        else if (isUp && _hotkeyDown)
+                        _spaceEngaged = false;
+                        if (_hotkeyDown) // not already stopped by Ctrl-up
                         {
                             _hotkeyDown = false;
-                            Application.Current.Dispatcher.BeginInvoke(RecordStopPressed);
+                            if (_getSettings().HotkeyMode == HotkeyMode.PushToTalk)
+                                Application.Current.Dispatcher.BeginInvoke(RecordStopPressed);
                         }
                     }
-                    else
-                    {
-                        if (isDown && !_hotkeyDown)
-                        {
-                            _hotkeyDown = true;
-                            Application.Current.Dispatcher.BeginInvoke(HotkeyPressed);
-                        }
-                        else if (isUp)
-                        {
-                            _hotkeyDown = false;
-                        }
-                    }
-                    return (IntPtr)1; // consume — prevent Space (or other key) reaching active window
+                    return (IntPtr)1; // consume Space key-up even if Ctrl was released first
                 }
             }
         }
