@@ -7,9 +7,15 @@
         <ImplicitUsings>enable</ImplicitUsings>
         <UseWPF>true</UseWPF>
         <UseWindowsForms>true</UseWindowsForms>
+        <ApplicationIcon>Assets\Logo\dictio.ico</ApplicationIcon>
     </PropertyGroup>
 
     <ItemGroup>
+        <Resource Include="Assets\Logo\dictio.ico"/>
+    </ItemGroup>
+
+    <ItemGroup>
+      <PackageReference Include="WPF-UI" Version="4.3.0" />
       <PackageReference Include="Concentus" Version="2.2.2" />
       <PackageReference Include="Concentus.Oggfile" Version="1.0.7" />
       <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.6" />

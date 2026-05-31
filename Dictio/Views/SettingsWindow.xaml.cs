@@ -3,26 +3,31 @@ using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
-using System.Windows.Interop;
 using System.Windows.Media;
 using Dictio.Models;
 using Dictio.Services;
 using Microsoft.Win32;
 using NAudio.Wave;
+using Wpf.Ui.Controls;
 // Disambiguate WPF types from WinForms / System.Drawing (UseWindowsForms=true in csproj)
 using WpfColor       = System.Windows.Media.Color;
 using WpfBrush       = System.Windows.Media.Brush;
 using WpfBrushes     = System.Windows.Media.Brushes;
 using WpfCursors     = System.Windows.Input.Cursors;
-using WpfOrientation = System.Windows.Controls.Orientation;
-using WpfMsgBox      = System.Windows.MessageBox;
-using WpfComboBox    = System.Windows.Controls.ComboBox;
+using WpfOrientation       = System.Windows.Controls.Orientation;
+using WpfMsgBox            = System.Windows.MessageBox;
+using WpfTextBlock         = System.Windows.Controls.TextBlock;
+using WpfMessageBoxButton  = System.Windows.MessageBoxButton;
+using WpfMessageBoxResult  = System.Windows.MessageBoxResult;
+using WpfMessageBoxImage   = System.Windows.MessageBoxImage;
+using WpfComboBox          = System.Windows.Controls.ComboBox;
 using WpfComboBoxItem = System.Windows.Controls.ComboBoxItem;
 using WpfHAlign      = System.Windows.HorizontalAlignment;
+using WpfKeyEventArgs = System.Windows.Input.KeyEventArgs;
 
 namespace Dictio.Views;
 
-public partial class SettingsWindow : Window
+public partial class SettingsWindow : FluentWindow
 {
     public AppSettings Result { get; private set; }
 
@@ -31,6 +36,9 @@ public partial class SettingsWindow : Window
     private int     _vOffset, _hOffset;
     private bool    _showingKey;
     private TranscriptionModelId _selectedModel;
+    private int     _hotkeyMods;
+    private int     _hotkeyVk;
+    private bool    _capturingHotkey;
 
     // ── Model catalog ─────────────────────────────────────────────────────────
 
@@ -110,12 +118,11 @@ public partial class SettingsWindow : Window
         Load(current);
     }
 
-    // ── Mica + theme title-bar ────────────────────────────────────────────────
+    // ── Loaded / theme ────────────────────────────────────────────────────────
 
     private void SettingsWindow_Loaded(object sender, RoutedEventArgs e)
     {
-        var hwnd = new WindowInteropHelper(this).Handle;
-        ThemeService.ApplyMicaToWindow(hwnd);
+        // FluentWindow handles Mica and title-bar chrome automatically.
         ThemeService.ThemeChanged += OnThemeChanged;
     }
 
@@ -127,9 +134,6 @@ public partial class SettingsWindow : Window
 
     private void OnThemeChanged()
     {
-        var hwnd = new WindowInteropHelper(this).Handle;
-        ThemeService.ApplyMicaToWindow(hwnd);
-
         // Keep ThemeCombo in sync if theme was changed externally (e.g. from tray)
         ThemeCombo.SelectedIndex = ThemeService.CurrentTheme switch
         {
@@ -217,6 +221,11 @@ public partial class SettingsWindow : Window
         UpdateVOffDisplay();
         UpdateHOffDisplay();
 
+        // Hotkey
+        _hotkeyMods = s.HotkeyModifiers;
+        _hotkeyVk   = s.HotkeyVirtualKey;
+        UpdateHotkeyDisplay();
+
         NavList.SelectedIndex = 0;
     }
 
@@ -224,11 +233,18 @@ public partial class SettingsWindow : Window
 
     private void NavList_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        PageMain.Visibility    = NavList.SelectedIndex == 0 ? Visibility.Visible : Visibility.Collapsed;
-        PageModels.Visibility  = NavList.SelectedIndex == 1 ? Visibility.Visible : Visibility.Collapsed;
-        PageApiKeys.Visibility = NavList.SelectedIndex == 2 ? Visibility.Visible : Visibility.Collapsed;
-        PageHistory.Visibility = NavList.SelectedIndex == 3 ? Visibility.Visible : Visibility.Collapsed;
-        PageOverlay.Visibility = NavList.SelectedIndex == 4 ? Visibility.Visible : Visibility.Collapsed;
+        ShowPage(NavList.SelectedIndex);
+    }
+
+    private void ShowPage(int idx)
+    {
+        PageMain.Visibility    = idx == 0 ? Visibility.Visible : Visibility.Collapsed;
+        PageModels.Visibility  = idx == 1 ? Visibility.Visible : Visibility.Collapsed;
+        PageApiKeys.Visibility = idx == 2 ? Visibility.Visible : Visibility.Collapsed;
+        PageHistory.Visibility = idx == 3 ? Visibility.Visible : Visibility.Collapsed;
+        PageOverlay.Visibility = idx == 4 ? Visibility.Visible : Visibility.Collapsed;
+
+        if (idx == 3) LoadHistoryList();
     }
 
     // ── Main: microphone ──────────────────────────────────────────────────────
@@ -278,6 +294,11 @@ public partial class SettingsWindow : Window
     private static WpfBrush R(string key) =>
         System.Windows.Application.Current.Resources[key] is WpfBrush b ? b : WpfBrushes.Transparent;
 
+    private static WpfBrush SelectedCardBg() =>
+        ThemeService.CurrentIsDark
+            ? new SolidColorBrush(WpfColor.FromRgb(0x1E, 0x3A, 0x5F))
+            : new SolidColorBrush(WpfColor.FromRgb(0xEF, 0xF6, 0xFF));
+
     private void BuildModelCards()
     {
         _cardMap.Clear();
@@ -309,10 +330,10 @@ public partial class SettingsWindow : Window
             BorderThickness = new Thickness(1.5),
             CornerRadius    = new CornerRadius(8),
             Padding         = new Thickness(14),
-            Background      = isSelected ? R("Settings.Nav.Selected.Bg") : R("Settings.Card.Bg"),
+            Background      = isSelected ? SelectedCardBg() : R("CardBackgroundFillColorDefaultBrush"),
             BorderBrush     = isSelected
                 ? new SolidColorBrush(WpfColor.FromRgb(0x1E, 0x78, 0xE6))
-                : R("Settings.Card.Border"),
+                : R("CardStrokeColorDefaultBrush"),
             Cursor = (isPaidNoKey || isComingSoon) ? WpfCursors.Arrow : WpfCursors.Hand,
         };
 
@@ -327,12 +348,12 @@ public partial class SettingsWindow : Window
         Grid.SetColumn(infoPanel, 0);
 
         var titleRow = new StackPanel { Orientation = WpfOrientation.Horizontal };
-        titleRow.Children.Add(new TextBlock
+        titleRow.Children.Add(new WpfTextBlock
         {
             Text       = family.Name,
             FontWeight = FontWeights.SemiBold,
             FontSize   = 13,
-            Foreground = R("Settings.Fg.Primary"),
+            Foreground = R("TextFillColorPrimaryBrush"),
             VerticalAlignment = VerticalAlignment.Center
         });
 
@@ -345,20 +366,20 @@ public partial class SettingsWindow : Window
 
         infoPanel.Children.Add(titleRow);
 
-        infoPanel.Children.Add(new TextBlock
+        infoPanel.Children.Add(new WpfTextBlock
         {
             Text         = family.Description,
             FontSize     = 11,
-            Foreground   = R("Settings.Fg.Secondary"),
+            Foreground   = R("TextFillColorSecondaryBrush"),
             Margin       = new Thickness(0, 3, 0, 0),
             TextWrapping = TextWrapping.Wrap
         });
 
-        infoPanel.Children.Add(new TextBlock
+        infoPanel.Children.Add(new WpfTextBlock
         {
             Text       = "🌐 " + family.Languages,
             FontSize   = 11,
-            Foreground = R("Settings.Fg.Hint"),
+            Foreground = R("TextFillColorTertiaryBrush"),
             Margin     = new Thickness(0, 4, 0, 0)
         });
 
@@ -403,11 +424,11 @@ public partial class SettingsWindow : Window
         rightPanel.Children.Add(BuildBarsRow("accuracy", family.AccuracyBars));
         rightPanel.Children.Add(BuildBarsRow("speed", family.SpeedBars));
         if (family.Size != null)
-            rightPanel.Children.Add(new TextBlock
+            rightPanel.Children.Add(new WpfTextBlock
             {
                 Text = family.Size,
                 FontSize = 10,
-                Foreground = R("Settings.Fg.Hint"),
+                Foreground = R("TextFillColorTertiaryBrush"),
                 HorizontalAlignment = WpfHAlign.Right,
                 Margin = new Thickness(0, 5, 0, 0)
             });
@@ -447,8 +468,8 @@ public partial class SettingsWindow : Window
             var modelLabel = variantCombo != null ? $"{family.Name} {family.Models[0].Label}" : family.Name;
             var msg = $"The model \"{modelLabel}\" does not support the currently selected language ({currentLang}).\n\n" +
                       "Switch to this model anyway? The Language setting will be reset to Auto.";
-            if (WpfMsgBox.Show(msg, "Language mismatch", MessageBoxButton.YesNo,
-                               MessageBoxImage.Warning) != MessageBoxResult.Yes)
+            if (WpfMsgBox.Show(msg, "Language mismatch", WpfMessageBoxButton.YesNo,
+                               WpfMessageBoxImage.Warning) != WpfMessageBoxResult.Yes)
                 return;
             LanguageCombo.SelectedIndex = 0;
         }
@@ -459,7 +480,6 @@ public partial class SettingsWindow : Window
 
     private void RefreshModelCardStates()
     {
-        bool hasKey = HasOpenAiKey();
         for (int i = 0; i < Catalog.Length; i++)
         {
             if (!_cardMap.TryGetValue(i, out var entry)) continue;
@@ -467,10 +487,10 @@ public partial class SettingsWindow : Window
             var family   = Catalog[i];
             bool selected = family.Models.Any(m => m.Id == _selectedModel);
 
-            card.Background  = selected ? R("Settings.Nav.Selected.Bg") : R("Settings.Card.Bg");
+            card.Background  = selected ? SelectedCardBg() : R("CardBackgroundFillColorDefaultBrush");
             card.BorderBrush = selected
                 ? new SolidColorBrush(WpfColor.FromRgb(0x1E, 0x78, 0xE6))
-                : R("Settings.Card.Border");
+                : R("CardStrokeColorDefaultBrush");
 
             if (variantCombo != null)
                 variantCombo.Visibility = selected ? Visibility.Visible : Visibility.Collapsed;
@@ -503,7 +523,7 @@ public partial class SettingsWindow : Window
             BorderBrush     = (WpfBrush)conv.ConvertFrom(border)!,
             BorderThickness = new Thickness(1),
         };
-        b.Child = new TextBlock
+        b.Child = new WpfTextBlock
         {
             Text = text, FontSize = 10,
             Foreground = (WpfBrush)conv.ConvertFrom(fg)!
@@ -519,10 +539,10 @@ public partial class SettingsWindow : Window
             HorizontalAlignment = WpfHAlign.Right,
             Margin              = new Thickness(0, 2, 0, 0)
         };
-        row.Children.Add(new TextBlock
+        row.Children.Add(new WpfTextBlock
         {
             Text = label, FontSize = 9, Width = 48,
-            Foreground        = R("Settings.Fg.Hint"),
+            Foreground        = R("TextFillColorTertiaryBrush"),
             VerticalAlignment = VerticalAlignment.Center
         });
         for (int i = 0; i < 4; i++)
@@ -533,7 +553,7 @@ public partial class SettingsWindow : Window
                 Margin     = new Thickness(2, 0, 0, 0),
                 Background = i < filled
                     ? new SolidColorBrush(WpfColor.FromRgb(0xE7, 0x54, 0x80))
-                    : R("Settings.Card.Border")
+                    : R("CardStrokeColorDefaultBrush")
             });
         return row;
     }
@@ -573,42 +593,42 @@ public partial class SettingsWindow : Window
 
             var row = new Border
             {
-                BorderBrush     = R("Settings.Card.Border"),
+                BorderBrush     = R("CardStrokeColorDefaultBrush"),
                 BorderThickness = new Thickness(1),
                 CornerRadius    = new CornerRadius(6),
                 Padding         = new Thickness(12, 9, 12, 9),
                 Margin          = new Thickness(0, 0, 0, 6),
-                Background      = R("Settings.Card.Bg")
+                Background      = R("CardBackgroundFillColorDefaultBrush")
             };
 
             var textPanel = new StackPanel();
-            textPanel.Children.Add(new TextBlock
+            textPanel.Children.Add(new WpfTextBlock
             {
                 Text       = file.Name,
                 FontSize   = 12,
                 FontWeight = FontWeights.Medium,
-                Foreground = R("Settings.Fg.Primary")
+                Foreground = R("TextFillColorPrimaryBrush")
             });
 
             if (transcript != null)
             {
                 var preview = transcript.Length > 120 ? transcript[..120] + "…" : transcript;
-                textPanel.Children.Add(new TextBlock
+                textPanel.Children.Add(new WpfTextBlock
                 {
                     Text         = preview,
                     FontSize     = 11,
-                    Foreground   = R("Settings.Fg.Secondary"),
+                    Foreground   = R("TextFillColorSecondaryBrush"),
                     Margin       = new Thickness(0, 3, 0, 0),
                     TextWrapping = TextWrapping.Wrap
                 });
             }
             else
             {
-                textPanel.Children.Add(new TextBlock
+                textPanel.Children.Add(new WpfTextBlock
                 {
                     Text       = $"{file.Length / 1024} KB  ·  {file.LastWriteTime:yyyy-MM-dd HH:mm}",
                     FontSize   = 11,
-                    Foreground = R("Settings.Fg.Hint"),
+                    Foreground = R("TextFillColorTertiaryBrush"),
                     Margin     = new Thickness(0, 2, 0, 0)
                 });
             }
@@ -682,6 +702,58 @@ public partial class SettingsWindow : Window
         if (_hOffset < 500) { _hOffset++; UpdateHOffDisplay(); }
     }
 
+    // ── Hotkey capture ────────────────────────────────────────────────────────
+
+    private void EditHotkey_Click(object sender, RoutedEventArgs e)
+    {
+        _capturingHotkey = true;
+        HotkeyCaptureBorder.BorderBrush = new SolidColorBrush(WpfColor.FromRgb(0x1E, 0x78, 0xE6));
+        HotkeyDisplayText.Text = "Press a shortcut…";
+    }
+
+    protected override void OnPreviewKeyDown(WpfKeyEventArgs e)
+    {
+        if (!_capturingHotkey) { base.OnPreviewKeyDown(e); return; }
+
+        var key = e.Key == Key.System ? e.SystemKey : e.Key;
+
+        if (IsModifierOnly(key)) { base.OnPreviewKeyDown(e); return; }
+
+        if (key == Key.Escape)
+        {
+            _capturingHotkey = false;
+            UpdateHotkeyDisplay();
+            e.Handled = true;
+            return;
+        }
+
+        bool ctrl  = Keyboard.IsKeyDown(Key.LeftCtrl)  || Keyboard.IsKeyDown(Key.RightCtrl);
+        bool shift = Keyboard.IsKeyDown(Key.LeftShift)  || Keyboard.IsKeyDown(Key.RightShift);
+        bool alt   = Keyboard.IsKeyDown(Key.LeftAlt)    || Keyboard.IsKeyDown(Key.RightAlt);
+        int  mods  = (ctrl ? 1 : 0) | (shift ? 2 : 0) | (alt ? 4 : 0);
+
+        if (mods == 0) { base.OnPreviewKeyDown(e); return; }
+
+        _hotkeyMods = mods;
+        _hotkeyVk   = KeyInterop.VirtualKeyFromKey(key);
+        _capturingHotkey = false;
+        UpdateHotkeyDisplay();
+        e.Handled = true;
+    }
+
+    private static bool IsModifierOnly(Key k) =>
+        k is Key.LeftCtrl or Key.RightCtrl or Key.LeftShift or Key.RightShift
+          or Key.LeftAlt  or Key.RightAlt  or Key.LWin or Key.RWin;
+
+    private void UpdateHotkeyDisplay()
+    {
+        if (HotkeyDisplayText == null) return;
+        HotkeyCaptureBorder.BorderBrush = _capturingHotkey
+            ? new SolidColorBrush(WpfColor.FromRgb(0x1E, 0x78, 0xE6))
+            : R("ControlStrokeColorDefaultBrush");
+        HotkeyDisplayText.Text = HotkeyService.FormatHotkey(_hotkeyMods, _hotkeyVk);
+    }
+
     // ── Save / Cancel ─────────────────────────────────────────────────────────
 
     private TranscriptionLanguage SelectedLanguage() => LanguageCombo.SelectedIndex switch
@@ -726,6 +798,8 @@ public partial class SettingsWindow : Window
                                         ?.Tag is int idx ? idx : 0,
             HotkeyMode                = HotkeyModeCombo.SelectedIndex == 1
                                         ? HotkeyMode.PushToTalk : HotkeyMode.Toggle,
+            HotkeyModifiers           = _hotkeyMods,
+            HotkeyVirtualKey          = _hotkeyVk,
             TranscriptionLanguage     = SelectedLanguage(),
             Theme                     = SelectedTheme(),
             FirstLaunchDone           = _current.FirstLaunchDone,

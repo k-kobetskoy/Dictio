@@ -85,9 +85,14 @@ public partial class App : Application
 
         if (!_settings.FirstLaunchDone)
         {
-            new WelcomeWindow().ShowDialog();
+            new WelcomeWindow(_settings).ShowDialog();
+            // WelcomeWindow writes choices directly into _settings
             _settings.FirstLaunchDone = true;
             _settings.Save();
+
+            // Re-apply any values that may have changed (mic, hotkey, model, etc.)
+            ThemeService.Apply(_settings.Theme);
+            _overlay!.Opacity = _settings.OverlayOpacity;
         }
     }
 
@@ -364,12 +369,17 @@ public partial class App : Application
 
     private static System.Drawing.Icon CreateTrayIcon()
     {
+        var stream = Application.GetResourceStream(
+            new Uri("pack://application:,,,/Assets/Logo/dictio.ico"))?.Stream;
+        if (stream != null)
+            return new System.Drawing.Icon(stream);
+
+        // fallback: blue circle
         var visual = new DrawingVisual();
         using (var dc = visual.RenderOpen())
             dc.DrawEllipse(
                 new SolidColorBrush(WpfColor.FromRgb(30, 120, 230)),
-                null,
-                new WpfPoint(8, 8), 7, 7);
+                null, new WpfPoint(8, 8), 7, 7);
         var rtb = new RenderTargetBitmap(16, 16, 96, 96, PixelFormats.Pbgra32);
         rtb.Render(visual);
         var enc = new PngBitmapEncoder();

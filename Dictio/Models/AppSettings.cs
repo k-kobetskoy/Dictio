@@ -58,6 +58,10 @@ public class AppSettings
     public int             OverlayVerticalOffsetPx   { get; set; } = 20;
     public int             OverlayHorizontalOffsetPx { get; set; } = 20;
 
+    // Hotkey binding: bitmask 1=Ctrl, 2=Shift, 4=Alt + virtual key code
+    public int HotkeyModifiers  { get; set; } = 1;     // default: Ctrl
+    public int HotkeyVirtualKey { get; set; } = 0x20;  // default: Space
+
     // In-memory plain text — never written to disk directly
     public string OpenAiApiKey { get; set; } = "";
     public HotkeyMode HotkeyMode { get; set; } = HotkeyMode.Toggle;
@@ -101,6 +105,8 @@ public class AppSettings
                 OverlayHorizontalOffsetPx = stored.OverlayHorizontalOffsetPx,
                 ForceWavDebug             = stored.ForceWavDebug,
                 SelectedModel             = stored.SelectedModel,
+                HotkeyModifiers           = stored.HotkeyModifiers,
+                HotkeyVirtualKey          = stored.HotkeyVirtualKey,
                 ShowTrayIcon              = stored.ShowTrayIcon,
                 HideOnStart               = stored.HideOnStart,
                 StartWithWindows          = stored.StartWithWindows,
@@ -142,6 +148,8 @@ public class AppSettings
                 OverlayHorizontalOffsetPx = OverlayHorizontalOffsetPx,
                 ForceWavDebug             = ForceWavDebug,
                 SelectedModel             = SelectedModel,
+                HotkeyModifiers           = HotkeyModifiers,
+                HotkeyVirtualKey          = HotkeyVirtualKey,
                 ShowTrayIcon              = ShowTrayIcon,
                 HideOnStart               = HideOnStart,
                 StartWithWindows          = StartWithWindows,
@@ -193,6 +201,8 @@ public class AppSettings
         public int             OverlayHorizontalOffsetPx { get; set; } = 20;
         public bool            ForceWavDebug             { get; set; } = false;
         public TranscriptionModelId SelectedModel        { get; set; } = TranscriptionModelId.GPT4oTranscribe;
+        public int  HotkeyModifiers  { get; set; } = 1;
+        public int  HotkeyVirtualKey { get; set; } = 0x20;
         public bool   ShowTrayIcon          { get; set; } = true;
         public bool   HideOnStart           { get; set; } = false;
         public bool   StartWithWindows      { get; set; } = false;
