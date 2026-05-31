@@ -8,6 +8,17 @@ namespace Dictio.Models;
 public enum HotkeyMode { Toggle, PushToTalk }
 public enum TranscriptionLanguage { English, Russian, Ukrainian, Auto }
 public enum AppColorTheme { System, Light, Dark }
+public enum OverlayPosition { BottomCenter, BottomLeft, BottomRight, TopCenter, TopLeft, TopRight }
+
+public enum TranscriptionModelId
+{
+    GPT4oTranscribe,
+    WhisperTurbo, WhisperLarge, WhisperMedium, WhisperSmall, WhisperBase, WhisperTiny,
+    ParakeetV3, ParakeetV2,
+    SenseVoice,
+    CanaryV2,
+    GigaAMv3,
+}
 
 public class AppSettings
 {
@@ -15,30 +26,37 @@ public class AppSettings
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
         "Dictio", "settings.json");
 
-    private static readonly Dictionary<TranscriptionLanguage, string> DefaultPrompts = new()
-    {
-        [TranscriptionLanguage.English] =
-            "Hello. Today I want to go over a few important things. " +
-            "First, let's look at the main idea — it's quite straightforward. " +
-            "We have several options available, and each one has its own advantages. " +
-            "The key point here is clarity of expression.",
-
-        [TranscriptionLanguage.Russian] =
-            "Привет. Сегодня я хочу рассказать о нескольких важных вещах. " +
-            "Во-первых, давайте разберём основную идею — она достаточно проста. " +
-            "У нас есть несколько вариантов, и у каждого свои преимущества. " +
-            "Главное здесь — чёткость изложения.",
-
-        [TranscriptionLanguage.Ukrainian] =
-            "Привіт. Сьогодні я хочу розповісти про кілька важливих речей. " +
-            "По-перше, давайте розберемо основну ідею — вона досить проста. " +
-            "У нас є кілька варіантів, і кожен має свої переваги. " +
-            "Головне тут — чіткість викладу.",
-    };
 
     public AppColorTheme Theme { get; set; } = AppColorTheme.System;
     public string? FontFamily { get; set; } = null;
     public bool RestoreClipboard { get; set; } = true;
+    public double SettingsWindowWidth  { get; set; } = 760;
+    public double SettingsWindowHeight { get; set; } = 780;
+
+    public TranscriptionModelId SelectedModel      { get; set; } = TranscriptionModelId.GPT4oTranscribe;
+    public bool   ShowTrayIcon          { get; set; } = true;
+    public bool   HideOnStart           { get; set; } = false;
+    public bool   StartWithWindows      { get; set; } = false;
+    public bool   EnableHistory         { get; set; } = true;
+    public int    HistoryMaxRecords     { get; set; } = 10;
+    public bool   SaveTranscriptionText { get; set; } = true;
+    public bool   OverlayVisible        { get; set; } = true;
+    public double OverlayOpacity        { get; set; } = 1.0;
+
+    // When true, recordings where the peak RMS never exceeds the silence threshold
+    // are skipped — no API call, no paste. The WAV file is still archived.
+    public bool SkipSilentRecordings { get; set; } = true;
+
+    // How often (ms) the equalizer scrolls one slot to the left. Range 50–800.
+    // Lower = faster scroll; higher = more history visible per slot.
+    public int EqScrollIntervalMs { get; set; } = 150;
+
+    // Overlay anchor and offsets in px.
+    // VerticalOffsetPx   — distance from top or bottom screen edge.
+    // HorizontalOffsetPx — distance from left or right screen edge (ignored for Center positions).
+    public OverlayPosition OverlayPosition        { get; set; } = OverlayPosition.BottomCenter;
+    public int             OverlayVerticalOffsetPx   { get; set; } = 20;
+    public int             OverlayHorizontalOffsetPx { get; set; } = 20;
 
     // In-memory plain text — never written to disk directly
     public string OpenAiApiKey { get; set; } = "";
@@ -46,10 +64,9 @@ public class AppSettings
     public int AudioDeviceIndex { get; set; } = 0;
     public bool FirstLaunchDone { get; set; } = false;
     public TranscriptionLanguage TranscriptionLanguage { get; set; } = TranscriptionLanguage.Auto;
-    public string CustomTranscriptionPrompt { get; set; } = "";
-
-    // null = not specified (API uses its default); valid range 0–1
-    public float? TranscriptionTemperature { get; set; } = null;
+    // When true, skips Ogg/Opus compression and sends raw WAV to the API.
+    // Useful for comparing transcription quality with and without compression.
+    public bool ForceWavDebug { get; set; } = false;
 
     // Returns ISO-639-1 code to pass to the API, or null to let the model auto-detect.
     public string? LanguageCode => TranscriptionLanguage switch
@@ -60,13 +77,6 @@ public class AppSettings
         _                               => null
     };
 
-    // Returns custom prompt if set, otherwise the default for the selected language
-    public string EffectivePrompt =>
-        string.IsNullOrWhiteSpace(CustomTranscriptionPrompt)
-            ? DefaultPrompts[TranscriptionLanguage]
-            : CustomTranscriptionPrompt;
-
-    public static string GetDefaultPrompt(TranscriptionLanguage lang) => DefaultPrompts[lang];
 
     public static AppSettings Load()
     {
@@ -77,15 +87,30 @@ public class AppSettings
                          ?? new StoredSettings();
             var settings = new AppSettings
             {
-                HotkeyMode               = stored.HotkeyMode,
-                AudioDeviceIndex         = stored.AudioDeviceIndex,
-                FirstLaunchDone         = stored.FirstLaunchDone,
-                TranscriptionLanguage    = stored.TranscriptionLanguage,
-                CustomTranscriptionPrompt = stored.CustomTranscriptionPrompt,
-                TranscriptionTemperature  = stored.TranscriptionTemperature,
-                Theme = stored.Theme,
-                FontFamily               = stored.FontFamily,
-                RestoreClipboard         = stored.RestoreClipboard,
+                HotkeyMode                = stored.HotkeyMode,
+                AudioDeviceIndex          = stored.AudioDeviceIndex,
+                FirstLaunchDone           = stored.FirstLaunchDone,
+                TranscriptionLanguage     = stored.TranscriptionLanguage,
+                Theme                     = stored.Theme,
+                FontFamily                = stored.FontFamily,
+                RestoreClipboard          = stored.RestoreClipboard,
+                SkipSilentRecordings      = stored.SkipSilentRecordings,
+                EqScrollIntervalMs        = stored.EqScrollIntervalMs,
+                OverlayPosition           = stored.OverlayPosition,
+                OverlayVerticalOffsetPx   = stored.OverlayVerticalOffsetPx,
+                OverlayHorizontalOffsetPx = stored.OverlayHorizontalOffsetPx,
+                ForceWavDebug             = stored.ForceWavDebug,
+                SelectedModel             = stored.SelectedModel,
+                ShowTrayIcon              = stored.ShowTrayIcon,
+                HideOnStart               = stored.HideOnStart,
+                StartWithWindows          = stored.StartWithWindows,
+                EnableHistory             = stored.EnableHistory,
+                HistoryMaxRecords         = stored.HistoryMaxRecords,
+                SaveTranscriptionText     = stored.SaveTranscriptionText,
+                OverlayVisible            = stored.OverlayVisible,
+                OverlayOpacity            = stored.OverlayOpacity,
+                SettingsWindowWidth       = stored.SettingsWindowWidth,
+                SettingsWindowHeight      = stored.SettingsWindowHeight,
             };
             if (!string.IsNullOrEmpty(stored.OpenAiApiKeyEncrypted))
                 settings.OpenAiApiKey = Decrypt(stored.OpenAiApiKeyEncrypted);
@@ -102,16 +127,31 @@ public class AppSettings
             Directory.CreateDirectory(Path.GetDirectoryName(SettingsPath)!);
             var stored = new StoredSettings
             {
-                OpenAiApiKeyEncrypted    = Encrypt(OpenAiApiKey),
-                HotkeyMode               = HotkeyMode,
-                AudioDeviceIndex         = AudioDeviceIndex,
-                FirstLaunchDone         = FirstLaunchDone,
-                TranscriptionLanguage    = TranscriptionLanguage,
-                CustomTranscriptionPrompt = CustomTranscriptionPrompt,
-                TranscriptionTemperature  = TranscriptionTemperature,
-                Theme = Theme,
-                FontFamily               = FontFamily,
-                RestoreClipboard         = RestoreClipboard,
+                OpenAiApiKeyEncrypted     = Encrypt(OpenAiApiKey),
+                HotkeyMode                = HotkeyMode,
+                AudioDeviceIndex          = AudioDeviceIndex,
+                FirstLaunchDone           = FirstLaunchDone,
+                TranscriptionLanguage     = TranscriptionLanguage,
+                Theme                     = Theme,
+                FontFamily                = FontFamily,
+                RestoreClipboard          = RestoreClipboard,
+                SkipSilentRecordings      = SkipSilentRecordings,
+                EqScrollIntervalMs        = EqScrollIntervalMs,
+                OverlayPosition           = OverlayPosition,
+                OverlayVerticalOffsetPx   = OverlayVerticalOffsetPx,
+                OverlayHorizontalOffsetPx = OverlayHorizontalOffsetPx,
+                ForceWavDebug             = ForceWavDebug,
+                SelectedModel             = SelectedModel,
+                ShowTrayIcon              = ShowTrayIcon,
+                HideOnStart               = HideOnStart,
+                StartWithWindows          = StartWithWindows,
+                EnableHistory             = EnableHistory,
+                HistoryMaxRecords         = HistoryMaxRecords,
+                SaveTranscriptionText     = SaveTranscriptionText,
+                OverlayVisible            = OverlayVisible,
+                OverlayOpacity            = OverlayOpacity,
+                SettingsWindowWidth       = SettingsWindowWidth,
+                SettingsWindowHeight      = SettingsWindowHeight,
             };
             File.WriteAllText(SettingsPath, JsonSerializer.Serialize(stored, new JsonSerializerOptions { WriteIndented = true }));
         }
@@ -143,11 +183,26 @@ public class AppSettings
         public int AudioDeviceIndex { get; set; } = 0;
         public bool FirstLaunchDone { get; set; } = false;
         public TranscriptionLanguage TranscriptionLanguage { get; set; } = TranscriptionLanguage.Auto;
-        public string CustomTranscriptionPrompt { get; set; } = "";
-        public float? TranscriptionTemperature { get; set; } = null;
         public AppColorTheme Theme { get; set; } = AppColorTheme.System;
         public string? FontFamily { get; set; } = null;
         public bool RestoreClipboard { get; set; } = true;
+        public bool SkipSilentRecordings { get; set; } = true;
+        public int EqScrollIntervalMs { get; set; } = 150;
+        public OverlayPosition OverlayPosition        { get; set; } = OverlayPosition.BottomCenter;
+        public int             OverlayVerticalOffsetPx   { get; set; } = 20;
+        public int             OverlayHorizontalOffsetPx { get; set; } = 20;
+        public bool            ForceWavDebug             { get; set; } = false;
+        public TranscriptionModelId SelectedModel        { get; set; } = TranscriptionModelId.GPT4oTranscribe;
+        public bool   ShowTrayIcon          { get; set; } = true;
+        public bool   HideOnStart           { get; set; } = false;
+        public bool   StartWithWindows      { get; set; } = false;
+        public bool   EnableHistory         { get; set; } = true;
+        public int    HistoryMaxRecords     { get; set; } = 10;
+        public bool   SaveTranscriptionText { get; set; } = true;
+        public bool   OverlayVisible        { get; set; } = true;
+        public double OverlayOpacity        { get; set; } = 1.0;
+        public double SettingsWindowWidth   { get; set; } = 760;
+        public double SettingsWindowHeight  { get; set; } = 780;
     }
 }
 

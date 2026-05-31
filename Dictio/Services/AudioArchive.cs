@@ -4,7 +4,7 @@ namespace Dictio.Services;
 
 public static class AudioArchive
 {
-    private const int MaxFiles = 10;
+    public static int MaxFiles { get; set; } = 10;
 
     private static readonly string Dir = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
@@ -29,6 +29,19 @@ public static class AudioArchive
         }
     }
 
+    public static void SaveText(string wavPath, string text)
+    {
+        try
+        {
+            var txtPath = Path.ChangeExtension(wavPath, ".txt");
+            File.WriteAllText(txtPath, text);
+        }
+        catch (Exception ex)
+        {
+            Logger.Log($"AudioArchive.SaveText error: {ex.Message}");
+        }
+    }
+
     public static IReadOnlyList<FileInfo> GetAll()
     {
         if (!Directory.Exists(Dir)) return [];
@@ -47,7 +60,12 @@ public static class AudioArchive
 
         foreach (var old in files.Skip(MaxFiles))
         {
-            try { old.Delete(); }
+            try
+            {
+                old.Delete();
+                var txt = Path.ChangeExtension(old.FullName, ".txt");
+                if (File.Exists(txt)) File.Delete(txt);
+            }
             catch { }
         }
     }

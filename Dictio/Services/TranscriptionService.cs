@@ -1,5 +1,6 @@
 #pragma warning disable OPENAI001
 using System.ClientModel;
+using System.Diagnostics;
 using System.IO;
 using System.Net.Http;
 using System.Net.Http.Headers;
@@ -30,16 +31,19 @@ public class TranscriptionService
     // Returns null when the transcription should be discarded (low confidence / silence).
     // prefixPaddingMs / silenceDurationMs / temperature: when any is set, sends a raw HTTP request
     // instead of using the SDK (SDK 2.10.0 doesn't expose chunking_strategy or temperature).
+    // forceWav: skip Ogg/Opus compression and send raw WAV (for debug purposes).
     public async Task<string?> TranscribeAsync(MemoryStream audioStream, string? prompt = null,
         int? prefixPaddingMs = null, int? silenceDurationMs = null, float? temperature = null,
-        string? language = null)
+        string? language = null, bool forceWav = false)
     {
+        var (sendStream, filename) = PrepareAudioStream(audioStream, forceWav);
+
         if (prefixPaddingMs.HasValue || silenceDurationMs.HasValue || (temperature.HasValue && temperature.Value > 0))
-            return await TranscribeRawAsync(audioStream, prompt, prefixPaddingMs, silenceDurationMs, temperature, language);
+            return await TranscribeRawAsync(sendStream, filename, prompt, prefixPaddingMs, silenceDurationMs, temperature, language);
 
         var client = new OpenAIClient(_getApiKey());
         var audioClient = client.GetAudioClient(ModelId);
-        audioStream.Position = 0;
+        sendStream.Position = 0;
 
         var options = new AudioTranscriptionOptions
         {
@@ -50,7 +54,7 @@ public class TranscriptionService
         if (!string.IsNullOrWhiteSpace(language))
             options.Language = language;
 
-        var result = await audioClient.TranscribeAudioAsync(audioStream, "audio.wav", options);
+        var result = await audioClient.TranscribeAudioAsync(sendStream, filename, options);
 
         var text = result.Value.Text;
         var json = result.GetRawResponse().Content.ToString();
@@ -66,16 +70,17 @@ public class TranscriptionService
         return text;
     }
 
-    private async Task<string?> TranscribeRawAsync(MemoryStream audioStream, string? prompt,
+    private async Task<string?> TranscribeRawAsync(MemoryStream sendStream, string filename, string? prompt,
         int? prefixPaddingMs, int? silenceDurationMs, float? temperature, string? language)
     {
-        audioStream.Position = 0;
+        sendStream.Position = 0;
 
         using var form = new MultipartFormDataContent();
 
-        var audioContent = new StreamContent(audioStream);
-        audioContent.Headers.ContentType = new MediaTypeHeaderValue("audio/wav");
-        form.Add(audioContent, "file", "audio.wav");
+        var mimeType = filename.EndsWith(".ogg", StringComparison.OrdinalIgnoreCase) ? "audio/ogg" : "audio/wav";
+        var audioContent = new StreamContent(sendStream);
+        audioContent.Headers.ContentType = new MediaTypeHeaderValue(mimeType);
+        form.Add(audioContent, "file", filename);
         form.Add(new StringContent(ModelId), "model");
         form.Add(new StringContent("logprobs"), "include[]");
         if (!string.IsNullOrWhiteSpace(prompt))
@@ -175,5 +180,33 @@ public class TranscriptionService
             return count > 0 ? sum / count : null;
         }
         catch { return null; }
+    }
+
+    // D1–D3: compresses WAV → Ogg/Opus before sending to API.
+    // If forceWav is true (debug mode), skips compression and returns the original stream.
+    // Falls back to WAV if encoding fails.
+    private static (MemoryStream stream, string filename) PrepareAudioStream(MemoryStream wav, bool forceWav)
+    {
+        if (forceWav)
+        {
+            wav.Position = 0;
+            return (wav, "audio.wav");
+        }
+
+        var sw = Stopwatch.StartNew();
+        try
+        {
+            var ogg = AudioCompressor.ToOggOpus(wav);
+            sw.Stop();
+            Logger.Log($"Compress: {wav.Length / 1024} KB WAV → {ogg.Length / 1024} KB Ogg/Opus in {sw.ElapsedMilliseconds} ms");
+            return (ogg, "audio.ogg");
+        }
+        catch (Exception ex)
+        {
+            sw.Stop();
+            Logger.Log($"Opus encode failed ({ex.GetType().Name}: {ex.Message}), sending WAV");
+            wav.Position = 0;
+            return (wav, "audio.wav");
+        }
     }
 }

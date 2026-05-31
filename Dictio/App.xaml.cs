@@ -23,10 +23,12 @@ public partial class App : Application
 {
     private NotifyIcon?           _tray;
     private ContextMenu?          _trayMenu;
+    private Window?               _menuAnchor;   // invisible focus owner for the tray menu popup
     private HotkeyService?        _hotkey;
     private AudioRecorderService? _audio;
     private TranscriptionService? _transcription;
     private OverlayWindow?        _overlay;
+    private SettingsWindow?       _settingsWindow;
     private AppSettings           _settings = AppSettings.Load();
     private bool                  _recording;
     private DateTime              _recordingStarted;
@@ -37,6 +39,11 @@ public partial class App : Application
     private MenuItem? _micMenu;
 
     private static readonly TimeSpan MinRecordingDuration = TimeSpan.FromSeconds(1);
+
+    // Peak RMS across the current recording, reset at Start. Same scale as LevelChanged (0–1).
+    // Matches the Silent/Voice threshold used by the overlay indicator.
+    private const float SilenceRmsThreshold = 0.02f;
+    private float _peakRms;
 
     [DllImport("user32.dll")] private static extern IntPtr GetForegroundWindow();
     [DllImport("user32.dll")] private static extern bool   SetForegroundWindow(IntPtr hWnd);
@@ -52,18 +59,26 @@ public partial class App : Application
         Logger.Log("=== Dictio started ===");
         Logger.Log($"Settings: device={_settings.AudioDeviceIndex}, mode={_settings.HotkeyMode}, theme={_settings.Theme}");
 
+        AudioArchive.MaxFiles = _settings.HistoryMaxRecords;
+
         _audio         = new AudioRecorderService();
         _transcription = new TranscriptionService(() => _settings.OpenAiApiKey);
 
-        // Apply theme before creating the overlay so Wpf.Ui resources are
-        // initialised once and don't retroactively affect the transparent window.
         ThemeService.Apply(_settings.Theme);
 
-        _overlay = new OverlayWindow();
-        _audio.LevelChanged      += level => _overlay.SetLevel(level);
+        _overlay = new OverlayWindow { EqScrollIntervalMs = _settings.EqScrollIntervalMs };
+        _overlay.ApplyPosition(_settings.OverlayPosition, _settings.OverlayVerticalOffsetPx, _settings.OverlayHorizontalOffsetPx);
+        _overlay.Opacity = _settings.OverlayOpacity;
+        _audio.LevelChanged += level =>
+        {
+            _overlay.SetLevel(level);
+            if (level > _peakRms) _peakRms = level;
+        };
         _overlay.RecordRequested += StartRecording;
         _overlay.SendRequested   += () => _ = StopRecordingAsync();
         _overlay.Show();
+        if (!_settings.OverlayVisible || _settings.HideOnStart)
+            _overlay.Hide();
 
         SetupTray();
         SetupHotkey();
@@ -86,7 +101,7 @@ public partial class App : Application
         {
             Text    = "Dictio",
             Icon    = CreateTrayIcon(),
-            Visible = true
+            Visible = _settings.ShowTrayIcon
         };
         _tray.MouseClick += (_, e) =>
         {
@@ -115,9 +130,6 @@ public partial class App : Application
         themeItem.Items.Add(_themeLight);
         themeItem.Items.Add(_themeDark);
 
-        var debugItem = new MenuItem { Header = "Debug" };
-        debugItem.Click += (_, _) => OpenDebug();
-
         var exitItem = new MenuItem { Header = "Exit" };
         exitItem.Click += (_, _) => Shutdown();
 
@@ -126,8 +138,6 @@ public partial class App : Application
         menu.Items.Add(new Separator());
         menu.Items.Add(_micMenu);
         menu.Items.Add(themeItem);
-        menu.Items.Add(new Separator());
-        menu.Items.Add(debugItem);
         menu.Items.Add(new Separator());
         menu.Items.Add(exitItem);
 
@@ -143,11 +153,47 @@ public partial class App : Application
     private void ShowTrayMenu()
     {
         GetCursorPos(out var pt);
-        _trayMenu!.PlacementTarget = _overlay;
+
+        // The overlay has WS_EX_NOACTIVATE so WPF's popup auto-close never fires.
+        // Use a tiny invisible anchor window that takes real focus; when the user
+        // clicks elsewhere the anchor loses activation and the menu closes.
+        if (_menuAnchor is null)
+        {
+            _menuAnchor = new Window
+            {
+                Width              = 1,
+                Height             = 1,
+                Left               = -32000,
+                Top                = -32000,
+                WindowStyle        = WindowStyle.None,
+                AllowsTransparency = true,
+                Background         = System.Windows.Media.Brushes.Transparent,
+                ShowInTaskbar      = false,
+                Topmost            = true,
+                ResizeMode         = ResizeMode.NoResize,
+            };
+            _menuAnchor.Deactivated += (_, _) =>
+            {
+                if (_trayMenu?.IsOpen == true)
+                    _trayMenu.IsOpen = false;
+            };
+        }
+
+        if (!_menuAnchor.IsVisible) _menuAnchor.Show();
+        _menuAnchor.Activate();
+
+        _trayMenu!.PlacementTarget = _menuAnchor;
         _trayMenu.Placement        = PlacementMode.AbsolutePoint;
         _trayMenu.HorizontalOffset = pt.X;
         _trayMenu.VerticalOffset   = pt.Y;
         _trayMenu.IsOpen           = true;
+
+        void OnClosed(object? s, RoutedEventArgs e)
+        {
+            _trayMenu!.Closed -= OnClosed;
+            _menuAnchor!.Hide();
+        }
+        _trayMenu.Closed += OnClosed;
     }
 
     private void RefreshMicMenu()
@@ -179,7 +225,7 @@ public partial class App : Application
     {
         _settings.Theme = mode;
         _settings.Save();
-        ThemeService.Apply(mode, _overlay);
+        ThemeService.Apply(mode);
     }
 
     // ── Hotkey ────────────────────────────────────────────────────────────────
@@ -208,9 +254,10 @@ public partial class App : Application
         _targetWindow     = GetForegroundWindow();
         _recording        = true;
         _recordingStarted = DateTime.UtcNow;
+        _peakRms          = 0f;
         Logger.Log($"Recording started (device={_settings.AudioDeviceIndex}, target=0x{_targetWindow:X8})");
         _audio!.Start(_settings.AudioDeviceIndex);
-        _overlay!.ShowRecording();
+        if (_settings.OverlayVisible) _overlay!.ShowRecording();
     }
 
     private async Task StopRecordingAsync()
@@ -226,17 +273,29 @@ public partial class App : Application
             _overlay!.Collapse();
             return;
         }
-        Logger.Log($"Audio ready: {stream.Length} bytes, transcribing…");
-        AudioArchive.Save(stream);
-        _overlay!.ShowProcessing();
+        Logger.Log($"Audio ready: {stream.Length} bytes, peakRms={_peakRms:F4}");
+        var savedPath = _settings.EnableHistory ? AudioArchive.Save(stream) : "";
+
+        if (_settings.SkipSilentRecordings && _peakRms < SilenceRmsThreshold)
+        {
+            Logger.Log($"Silent recording skipped (peakRms={_peakRms:F4} < threshold {SilenceRmsThreshold}).");
+            _overlay!.Collapse();
+            return;
+        }
+
+        Logger.Log("Transcribing…");
+        if (_settings.OverlayVisible) _overlay!.ShowProcessing();
         try
         {
             var text = await _transcription!.TranscribeAsync(stream, prompt: null,
-                temperature: _settings.TranscriptionTemperature,
-                language:    _settings.LanguageCode);
+                language: _settings.LanguageCode,
+                forceWav: _settings.ForceWavDebug);
             Logger.Log($"Transcription: \"{text}\"");
             if (!string.IsNullOrWhiteSpace(text))
             {
+                if (_settings.SaveTranscriptionText && !string.IsNullOrEmpty(savedPath))
+                    AudioArchive.SaveText(savedPath, text);
+
                 if (_targetWindow != IntPtr.Zero)
                 {
                     SetForegroundWindow(_targetWindow);
@@ -252,22 +311,53 @@ public partial class App : Application
         }
         finally
         {
-            _overlay!.Collapse();
+            if (_settings.OverlayVisible) _overlay!.Collapse();
         }
     }
 
     // ── Windows ───────────────────────────────────────────────────────────────
 
-    private void OpenDebug()    => new DebugWindow(_transcription!, _settings).Show();
-
     private void OpenSettings()
     {
-        var win = new SettingsWindow(_settings);
-        if (win.ShowDialog() == true)
+        // Singleton: bring existing window to front instead of opening a second one
+        if (_settingsWindow?.IsLoaded == true)
         {
-            _settings = win.Result;
-            _settings.Save();
+            if (_settingsWindow.WindowState == WindowState.Minimized)
+                _settingsWindow.WindowState = WindowState.Normal;
+            _settingsWindow.Activate();
+            return;
         }
+
+        var prev = _settings;
+        _settingsWindow = new SettingsWindow(_settings);
+        if (_settingsWindow.ShowDialog() == true)
+        {
+            _settings = _settingsWindow.Result;
+            _settings.Save();
+
+            _tray!.Visible               = _settings.ShowTrayIcon;
+            AudioArchive.MaxFiles        = _settings.HistoryMaxRecords;
+
+            _overlay!.EqScrollIntervalMs = _settings.EqScrollIntervalMs;
+            _overlay.Opacity             = _settings.OverlayOpacity;
+            _overlay.ApplyPosition(_settings.OverlayPosition,
+                                   _settings.OverlayVerticalOffsetPx,
+                                   _settings.OverlayHorizontalOffsetPx);
+
+            if (_settings.OverlayVisible)
+                _overlay.Show();
+            else
+                _overlay.Hide();
+
+            if (_settings.Theme != prev.Theme)
+                ThemeService.Apply(_settings.Theme);
+        }
+
+        // Persist window dimensions regardless of Save/Cancel
+        _settings.SettingsWindowWidth  = _settingsWindow.ActualWidth;
+        _settings.SettingsWindowHeight = _settingsWindow.ActualHeight;
+        _settings.Save();
+        _settingsWindow = null;
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
@@ -311,6 +401,7 @@ public partial class App : Application
         _hotkey?.Dispose();
         _audio?.Dispose();
         _tray?.Dispose();
+        _menuAnchor?.Close();
         base.OnExit(e);
     }
 }
