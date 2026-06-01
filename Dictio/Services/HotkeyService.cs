@@ -54,6 +54,7 @@ public class HotkeyService : IDisposable
     private bool _triggerEngaged;   // trigger key was consumed on key-down; must consume matching key-up
     private int  _engagedVk;        // VK code that was consumed (matches the key-up we must swallow)
     private bool _ctrl, _shift, _alt;
+    private volatile bool _paused;
 
     public event Action? HotkeyPressed;
     public event Action? RecordStartPressed;
@@ -63,6 +64,16 @@ public class HotkeyService : IDisposable
     {
         _getSettings = getSettings;
     }
+
+    public void Pause()
+    {
+        _paused         = true;
+        _hotkeyDown     = false;
+        _triggerEngaged = false;
+        _ctrl = _shift = _alt = false;
+    }
+
+    public void Resume() => _paused = false;
 
     public void Install()
     {
@@ -85,6 +96,9 @@ public class HotkeyService : IDisposable
     {
         if (nCode >= 0)
         {
+            if (_paused)
+                return CallNextHookEx(_hookId, nCode, wParam, lParam);
+
             var kbd = Marshal.PtrToStructure<KBDLLHOOKSTRUCT>(lParam);
             if ((kbd.flags & LLKHF_INJECTED) != 0)
                 return CallNextHookEx(_hookId, nCode, wParam, lParam);

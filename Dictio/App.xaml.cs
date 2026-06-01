@@ -12,7 +12,10 @@ using System.Windows.Controls.Primitives;
 using System.Windows.Forms;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
+using Wpf.Ui.Appearance;
 using Application   = System.Windows.Application;
+using WpfMenuItem   = System.Windows.Controls.MenuItem;
+using WindowBackdropType = Wpf.Ui.Controls.WindowBackdropType;
 using MouseButtons  = System.Windows.Forms.MouseButtons;
 using WpfColor      = System.Windows.Media.Color;
 using WpfPoint      = System.Windows.Point;
@@ -35,8 +38,8 @@ public partial class App : Application
     private IntPtr                _targetWindow;
 
     // Theme submenu items — kept as fields so IsChecked can be updated.
-    private MenuItem? _themeAuto, _themeLight, _themeDark;
-    private MenuItem? _micMenu;
+    private WpfMenuItem? _themeAuto, _themeLight, _themeDark;
+    private WpfMenuItem? _micMenu;
 
     private static readonly TimeSpan MinRecordingDuration = TimeSpan.FromSeconds(1);
 
@@ -79,6 +82,11 @@ public partial class App : Application
         _overlay.Show();
         if (!_settings.OverlayVisible || _settings.HideOnStart)
             _overlay.Hide();
+        // The overlay is the first window shown, so WPF auto-assigns it as MainWindow.
+        // Wpf.Ui's ApplicationThemeManager.Apply() calls WindowBackgroundManager.UpdateBackground
+        // on MainWindow, which corrupts the overlay's CompositionTarget.BackgroundColor.
+        // Nulling MainWindow prevents that. Safe because ShutdownMode = OnExplicitShutdown.
+        MainWindow = null;
 
         SetupTray();
         SetupHotkey();
@@ -226,11 +234,40 @@ public partial class App : Application
         _themeDark!.IsChecked  = _settings.Theme == AppColorTheme.Dark;
     }
 
+    private void ApplySettingsToApp()
+    {
+        _tray!.Visible               = _settings.ShowTrayIcon;
+        AudioArchive.MaxFiles        = _settings.HistoryMaxRecords;
+
+        _overlay!.EqScrollIntervalMs = _settings.EqScrollIntervalMs;
+        _overlay.Opacity             = _settings.OverlayOpacity;
+        _overlay.ApplyPosition(_settings.OverlayPosition,
+                               _settings.OverlayVerticalOffsetPx,
+                               _settings.OverlayHorizontalOffsetPx);
+
+        if (_settings.OverlayVisible) _overlay.Show();
+        else                          _overlay.Hide();
+
+        ThemeService.Apply(_settings.Theme);
+        RefreshSettingsWindowBackdrop();
+    }
+
+    // Wpf.Ui skips UpdateBackground because MainWindow = null (needed to protect the overlay).
+    // After any theme change we manually refresh the FluentWindow backdrop so DWM dark mode
+    // and Mica stay in sync with the new theme.
+    private void RefreshSettingsWindowBackdrop()
+    {
+        if (_settingsWindow == null) return;
+        var appTheme = ThemeService.CurrentIsDark ? ApplicationTheme.Dark : ApplicationTheme.Light;
+        WindowBackgroundManager.UpdateBackground(_settingsWindow, appTheme, WindowBackdropType.Mica);
+    }
+
     private void ApplyTheme(AppColorTheme mode)
     {
         _settings.Theme = mode;
         _settings.Save();
         ThemeService.Apply(mode);
+        RefreshSettingsWindowBackdrop();
     }
 
     // ── Hotkey ────────────────────────────────────────────────────────────────
@@ -333,36 +370,23 @@ public partial class App : Application
             return;
         }
 
-        var prev = _settings;
         _settingsWindow = new SettingsWindow(_settings);
-        if (_settingsWindow.ShowDialog() == true)
+        _settingsWindow.PauseHotkey  = _hotkey!.Pause;
+        _settingsWindow.ResumeHotkey = _hotkey!.Resume;
+        _settingsWindow.SettingChanged += newSettings =>
         {
-            _settings = _settingsWindow.Result;
+            _settings = newSettings;
+            ApplySettingsToApp();
             _settings.Save();
-
-            _tray!.Visible               = _settings.ShowTrayIcon;
-            AudioArchive.MaxFiles        = _settings.HistoryMaxRecords;
-
-            _overlay!.EqScrollIntervalMs = _settings.EqScrollIntervalMs;
-            _overlay.Opacity             = _settings.OverlayOpacity;
-            _overlay.ApplyPosition(_settings.OverlayPosition,
-                                   _settings.OverlayVerticalOffsetPx,
-                                   _settings.OverlayHorizontalOffsetPx);
-
-            if (_settings.OverlayVisible)
-                _overlay.Show();
-            else
-                _overlay.Hide();
-
-            if (_settings.Theme != prev.Theme)
-                ThemeService.Apply(_settings.Theme);
-        }
-
-        // Persist window dimensions regardless of Save/Cancel
-        _settings.SettingsWindowWidth  = _settingsWindow.ActualWidth;
-        _settings.SettingsWindowHeight = _settingsWindow.ActualHeight;
-        _settings.Save();
-        _settingsWindow = null;
+        };
+        _settingsWindow.Closed += (_, _) =>
+        {
+            _settings.SettingsWindowWidth  = _settingsWindow.ActualWidth;
+            _settings.SettingsWindowHeight = _settingsWindow.ActualHeight;
+            _settings.Save();
+            _settingsWindow = null;
+        };
+        _settingsWindow.Show();
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────

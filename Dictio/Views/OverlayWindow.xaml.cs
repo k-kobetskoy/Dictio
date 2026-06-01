@@ -4,6 +4,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Interop;
+using System.Windows.Media;
 using System.Windows.Media.Animation;
 using MouseEventArgs = System.Windows.Input.MouseEventArgs;
 using WpfRect = System.Windows.Shapes.Rectangle;
@@ -14,6 +15,18 @@ public enum OverlayState { Collapsed, Idle, RecordingSilent, Processing }
 
 public partial class OverlayWindow : Window
 {
+    // Wpf.Ui's ApplicationThemeManager walks all open windows and sets Background on theme change.
+    // Coerce Background to always stay Transparent so the overlay never gets a solid rectangle.
+    static OverlayWindow()
+    {
+        BackgroundProperty.OverrideMetadata(
+            typeof(OverlayWindow),
+            new FrameworkPropertyMetadata(
+                defaultValue: System.Windows.Media.Brushes.Transparent,
+                propertyChangedCallback: null,
+                coerceValueCallback: (_, _) => System.Windows.Media.Brushes.Transparent));
+    }
+
     private const int GWL_EXSTYLE      = -20;
     private const int WS_EX_NOACTIVATE = 0x08000000;
     private const int WS_EX_TOOLWINDOW = 0x00000080;

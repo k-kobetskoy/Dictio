@@ -29,7 +29,11 @@ namespace Dictio.Views;
 
 public partial class SettingsWindow : FluentWindow
 {
-    public AppSettings Result { get; private set; }
+    // Fires on every settings change — App.xaml.cs subscribes and applies immediately.
+    public event Action<AppSettings>? SettingChanged;
+
+    public Action? PauseHotkey  { get; set; }
+    public Action? ResumeHotkey { get; set; }
 
     private readonly AppSettings _current;
     private int     _historyCount;
@@ -39,6 +43,17 @@ public partial class SettingsWindow : FluentWindow
     private int     _hotkeyMods;
     private int     _hotkeyVk;
     private bool    _capturingHotkey;
+    private bool    _loading;
+
+    // System shortcuts that shouldn't be used as Dictio hotkeys.
+    // Bitmask: 1=Ctrl, 2=Shift, 4=Alt. VK values are Windows virtual-key codes.
+    private static readonly HashSet<(int mods, int vk)> SystemBlacklist = new()
+    {
+        (1, 0x41), (1, 0x43), (1, 0x46), (1, 0x4E), (1, 0x4F), // Ctrl+A/C/F/N/O
+        (1, 0x50), (1, 0x53), (1, 0x54), (1, 0x56), (1, 0x57), // Ctrl+P/S/T/V/W
+        (1, 0x58), (1, 0x59), (1, 0x5A),                        // Ctrl+X/Y/Z
+        (4, 0x73), (4, 0x09),                                    // Alt+F4, Alt+Tab
+    };
 
     // ── Model catalog ─────────────────────────────────────────────────────────
 
@@ -107,15 +122,100 @@ public partial class SettingsWindow : FluentWindow
 
     public SettingsWindow(AppSettings current)
     {
+        _loading = true;
         InitializeComponent();
         _current = current;
-        Result   = current;
 
-        // Restore saved window size
         if (current.SettingsWindowWidth  >= 640) Width  = current.SettingsWindowWidth;
         if (current.SettingsWindowHeight >= 500) Height = current.SettingsWindowHeight;
 
         Load(current);
+        WireControls();
+        _loading = false;
+    }
+
+    // ── Live-apply wiring ────────────────────────────────────────────────────
+
+    private void WireControls()
+    {
+        ApiKeyBox.PasswordChanged               += (_, _) => ApplyAndNotify();
+        ApiKeyVisible.TextChanged               += (_, _) => ApplyAndNotify();
+        AudioDeviceCombo.SelectionChanged       += (_, _) => ApplyAndNotify();
+        HotkeyModeCombo.SelectionChanged        += (_, _) => ApplyAndNotify();
+        ThemeCombo.SelectionChanged             += (_, _) => ApplyAndNotify();
+        EqSpeedCombo.SelectionChanged           += (_, _) => ApplyAndNotify();
+        OverlayPositionCombo.SelectionChanged   += (_, _) => ApplyAndNotify();
+
+        foreach (var toggle in new[]
+        {
+            StartWithWindowsToggle, HideOnStartToggle, ShowTrayIconToggle,
+            RestoreClipboardToggle, CompressAudioToggle, SkipSilentToggle,
+            EnableHistoryToggle, SaveTranscriptToggle, OverlayVisibleToggle,
+        })
+        {
+            toggle.Checked   += (_, _) => ApplyAndNotify();
+            toggle.Unchecked += (_, _) => ApplyAndNotify();
+        }
+
+        StartWithWindowsToggle.Checked   += (_, _) => ApplyStartWithWindows(true);
+        StartWithWindowsToggle.Unchecked += (_, _) => ApplyStartWithWindows(false);
+    }
+
+    private void ApplyAndNotify()
+    {
+        if (_loading) return;
+        SettingChanged?.Invoke(CollectSettings());
+    }
+
+    private AppSettings CollectSettings()
+    {
+        var apiKey = _showingKey ? ApiKeyVisible.Text : ApiKeyBox.Password;
+
+        int eqMs = (EqSpeedCombo.SelectedItem as WpfComboBoxItem)?.Tag is string t
+                   && int.TryParse(t, out var v) ? v : 150;
+
+        var pos = OverlayPositionCombo.SelectedIndex switch
+        {
+            1 => OverlayPosition.BottomLeft,
+            2 => OverlayPosition.BottomRight,
+            3 => OverlayPosition.TopCenter,
+            4 => OverlayPosition.TopLeft,
+            5 => OverlayPosition.TopRight,
+            _ => OverlayPosition.BottomCenter
+        };
+
+        return new AppSettings
+        {
+            OpenAiApiKey              = apiKey,
+            AudioDeviceIndex          = (AudioDeviceCombo.SelectedItem as WpfComboBoxItem)
+                                        ?.Tag is int idx ? idx : 0,
+            HotkeyMode                = HotkeyModeCombo.SelectedIndex == 1
+                                        ? HotkeyMode.PushToTalk : HotkeyMode.Toggle,
+            HotkeyModifiers           = _hotkeyMods,
+            HotkeyVirtualKey          = _hotkeyVk,
+            TranscriptionLanguage     = SelectedLanguage(),
+            Theme                     = SelectedTheme(),
+            FirstLaunchDone           = _current.FirstLaunchDone,
+            FontFamily                = _current.FontFamily,
+            RestoreClipboard          = RestoreClipboardToggle.IsChecked == true,
+            SkipSilentRecordings      = SkipSilentToggle.IsChecked == true,
+            ForceWavDebug             = CompressAudioToggle.IsChecked != true,
+            EqScrollIntervalMs        = eqMs,
+            OverlayPosition           = pos,
+            OverlayVerticalOffsetPx   = _vOffset,
+            OverlayHorizontalOffsetPx = _hOffset,
+            SelectedModel             = _selectedModel,
+            ShowTrayIcon              = ShowTrayIconToggle.IsChecked == true,
+            HideOnStart               = HideOnStartToggle.IsChecked == true,
+            StartWithWindows          = StartWithWindowsToggle.IsChecked == true,
+            EnableHistory             = EnableHistoryToggle.IsChecked == true,
+            HistoryMaxRecords         = _historyCount,
+            SaveTranscriptionText     = SaveTranscriptToggle.IsChecked == true,
+            OverlayVisible            = OverlayVisibleToggle.IsChecked == true,
+            OverlayOpacity            = OpacitySlider.Value,
+            SettingsWindowWidth       = _current.SettingsWindowWidth,
+            SettingsWindowHeight      = _current.SettingsWindowHeight,
+        };
     }
 
     // ── Loaded / theme ────────────────────────────────────────────────────────
@@ -284,6 +384,7 @@ public partial class SettingsWindow : FluentWindow
             TranscriptionLanguage.Auto => "Language auto-detected from audio",
             _                          => $"Model transcribes in {lang}"
         };
+        ApplyAndNotify();
     }
 
     // ── Models section ────────────────────────────────────────────────────────
@@ -476,6 +577,7 @@ public partial class SettingsWindow : FluentWindow
 
         _selectedModel = targetId;
         RefreshModelCardStates();
+        ApplyAndNotify();
     }
 
     private void RefreshModelCardStates()
@@ -646,12 +748,12 @@ public partial class SettingsWindow : FluentWindow
 
     private void HistoryCountDown_Click(object sender, RoutedEventArgs e)
     {
-        if (_historyCount > 1) { _historyCount--; UpdateHistoryCountDisplay(); }
+        if (_historyCount > 1) { _historyCount--; UpdateHistoryCountDisplay(); ApplyAndNotify(); }
     }
 
     private void HistoryCountUp_Click(object sender, RoutedEventArgs e)
     {
-        if (_historyCount < 50) { _historyCount++; UpdateHistoryCountDisplay(); }
+        if (_historyCount < 50) { _historyCount++; UpdateHistoryCountDisplay(); ApplyAndNotify(); }
     }
 
     private void OpenHistoryFolder_Click(object sender, RoutedEventArgs e)
@@ -670,16 +772,19 @@ public partial class SettingsWindow : FluentWindow
     {
         if (OpacityDisplay == null) return;
         OpacityDisplay.Text = $"{(int)(OpacitySlider.Value * 100)}%";
+        ApplyAndNotify();
     }
 
     private void UpdateVOffDisplay()
     {
         if (VOffDisplay != null) VOffDisplay.Text = _vOffset.ToString();
+        ApplyAndNotify();
     }
 
     private void UpdateHOffDisplay()
     {
         if (HOffDisplay != null) HOffDisplay.Text = _hOffset.ToString();
+        ApplyAndNotify();
     }
 
     private void VOffDown_Click(object sender, RoutedEventArgs e)
@@ -707,6 +812,7 @@ public partial class SettingsWindow : FluentWindow
     private void EditHotkey_Click(object sender, RoutedEventArgs e)
     {
         _capturingHotkey = true;
+        PauseHotkey?.Invoke();
         HotkeyCaptureBorder.BorderBrush = new SolidColorBrush(WpfColor.FromRgb(0x1E, 0x78, 0xE6));
         HotkeyDisplayText.Text = "Press a shortcut…";
     }
@@ -722,6 +828,7 @@ public partial class SettingsWindow : FluentWindow
         if (key == Key.Escape)
         {
             _capturingHotkey = false;
+            ResumeHotkey?.Invoke();
             UpdateHotkeyDisplay();
             e.Handled = true;
             return;
@@ -734,10 +841,22 @@ public partial class SettingsWindow : FluentWindow
 
         if (mods == 0) { base.OnPreviewKeyDown(e); return; }
 
-        _hotkeyMods = mods;
-        _hotkeyVk   = KeyInterop.VirtualKeyFromKey(key);
+        int vk = KeyInterop.VirtualKeyFromKey(key);
+
+        if (SystemBlacklist.Contains((mods, vk)))
+        {
+            // Flash a warning and keep capturing
+            HotkeyDisplayText.Text = "⚠ System shortcut — try a different key";
+            e.Handled = true;
+            return;
+        }
+
+        _hotkeyMods      = mods;
+        _hotkeyVk        = vk;
         _capturingHotkey = false;
+        ResumeHotkey?.Invoke();
         UpdateHotkeyDisplay();
+        ApplyAndNotify();
         e.Handled = true;
     }
 
@@ -754,7 +873,11 @@ public partial class SettingsWindow : FluentWindow
         HotkeyDisplayText.Text = HotkeyService.FormatHotkey(_hotkeyMods, _hotkeyVk);
     }
 
-    // ── Save / Cancel ─────────────────────────────────────────────────────────
+    // ── Done ──────────────────────────────────────────────────────────────────
+
+    private void Done_Click(object sender, RoutedEventArgs e) => Close();
+
+    // ── Helpers ───────────────────────────────────────────────────────────────
 
     private TranscriptionLanguage SelectedLanguage() => LanguageCombo.SelectedIndex switch
     {
@@ -771,64 +894,6 @@ public partial class SettingsWindow : FluentWindow
         _ => AppColorTheme.System
     };
 
-    private void Save_Click(object sender, RoutedEventArgs e)
-    {
-        var apiKey = _showingKey ? ApiKeyVisible.Text : ApiKeyBox.Password;
-
-        int eqMs = (EqSpeedCombo.SelectedItem as WpfComboBoxItem)?.Tag is string t
-                   && int.TryParse(t, out var v) ? v : 150;
-
-        var pos = OverlayPositionCombo.SelectedIndex switch
-        {
-            1 => OverlayPosition.BottomLeft,
-            2 => OverlayPosition.BottomRight,
-            3 => OverlayPosition.TopCenter,
-            4 => OverlayPosition.TopLeft,
-            5 => OverlayPosition.TopRight,
-            _ => OverlayPosition.BottomCenter
-        };
-
-        bool startWithWindows = StartWithWindowsToggle.IsChecked == true;
-        ApplyStartWithWindows(startWithWindows);
-
-        Result = new AppSettings
-        {
-            OpenAiApiKey              = apiKey,
-            AudioDeviceIndex          = (AudioDeviceCombo.SelectedItem as WpfComboBoxItem)
-                                        ?.Tag is int idx ? idx : 0,
-            HotkeyMode                = HotkeyModeCombo.SelectedIndex == 1
-                                        ? HotkeyMode.PushToTalk : HotkeyMode.Toggle,
-            HotkeyModifiers           = _hotkeyMods,
-            HotkeyVirtualKey          = _hotkeyVk,
-            TranscriptionLanguage     = SelectedLanguage(),
-            Theme                     = SelectedTheme(),
-            FirstLaunchDone           = _current.FirstLaunchDone,
-            FontFamily                = _current.FontFamily,
-            RestoreClipboard          = RestoreClipboardToggle.IsChecked == true,
-            SkipSilentRecordings      = SkipSilentToggle.IsChecked == true,
-            ForceWavDebug             = CompressAudioToggle.IsChecked != true,
-            EqScrollIntervalMs        = eqMs,
-            OverlayPosition           = pos,
-            OverlayVerticalOffsetPx   = _vOffset,
-            OverlayHorizontalOffsetPx = _hOffset,
-            SelectedModel             = _selectedModel,
-            ShowTrayIcon              = ShowTrayIconToggle.IsChecked == true,
-            HideOnStart               = HideOnStartToggle.IsChecked == true,
-            StartWithWindows          = startWithWindows,
-            EnableHistory             = EnableHistoryToggle.IsChecked == true,
-            HistoryMaxRecords         = _historyCount,
-            SaveTranscriptionText     = SaveTranscriptToggle.IsChecked == true,
-            OverlayVisible            = OverlayVisibleToggle.IsChecked == true,
-            OverlayOpacity            = OpacitySlider.Value,
-            // size saved by App.xaml.cs after dialog closes
-            SettingsWindowWidth       = _current.SettingsWindowWidth,
-            SettingsWindowHeight      = _current.SettingsWindowHeight,
-        };
-
-        DialogResult = true;
-    }
-
-    private void Cancel_Click(object sender, RoutedEventArgs e) => DialogResult = false;
 
     // ── Start with Windows (registry) ─────────────────────────────────────────
 

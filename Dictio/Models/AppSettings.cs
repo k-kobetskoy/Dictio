@@ -41,7 +41,7 @@ public class AppSettings
     public int    HistoryMaxRecords     { get; set; } = 10;
     public bool   SaveTranscriptionText { get; set; } = true;
     public bool   OverlayVisible        { get; set; } = true;
-    public double OverlayOpacity        { get; set; } = 1.0;
+    public double OverlayOpacity        { get; set; } = 0.9;
 
     // When true, recordings where the peak RMS never exceeds the silence threshold
     // are skipped — no API call, no paste. The WAV file is still archived.
@@ -210,7 +210,7 @@ public class AppSettings
         public int    HistoryMaxRecords     { get; set; } = 10;
         public bool   SaveTranscriptionText { get; set; } = true;
         public bool   OverlayVisible        { get; set; } = true;
-        public double OverlayOpacity        { get; set; } = 1.0;
+        public double OverlayOpacity        { get; set; } = 0.9;
         public double SettingsWindowWidth   { get; set; } = 760;
         public double SettingsWindowHeight  { get; set; } = 780;
     }

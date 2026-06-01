@@ -789,11 +789,8 @@
                     BorderThickness="0,1,0,0">
                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Right"
                             Margin="24,11,24,11">
-                    <Button Content="Cancel" Style="{StaticResource SecondaryBtn}"
-                            Width="90" Margin="0,0,8,0"
-                            Click="Cancel_Click" IsCancel="True"/>
-                    <Button Content="Save" Style="{StaticResource PrimaryBtn}"
-                            Width="90" Click="Save_Click" IsDefault="True"/>
+                    <Button Content="Done" Style="{StaticResource PrimaryBtn}"
+                            Width="90" Click="Done_Click" IsDefault="True"/>
                 </StackPanel>
             </Border>
         </Grid>

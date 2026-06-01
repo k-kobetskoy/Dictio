@@ -11,7 +11,7 @@
         <!-- ── S0: Collapsed strip (always visible by default) ─────────────────── -->
         <Grid x:Name="StateCollapsed" HorizontalAlignment="Center" VerticalAlignment="Center">
             <Border Width="51" Height="7" CornerRadius="3.5"
-                    Background="#99232932" BorderBrush="#99455060" BorderThickness="1"/>
+                    Background="#232932" BorderBrush="#455060" BorderThickness="1"/>
         </Grid>
 
         <!-- ── S1: Idle pill — click to record ───────────────────────────────── -->
@@ -22,7 +22,7 @@
                 <Button.Template>
                     <ControlTemplate TargetType="Button">
                         <Border x:Name="Pill" Width="51" Height="28" CornerRadius="14"
-                                Background="#99232932">
+                                Background="#232932">
                             <!-- Mic icon path from Assets/Icons/hover-mic-icon.svg (11.5×15.5 viewBox) -->
                             <Path Width="12" Height="16" Fill="#DCE2E3" Stretch="Uniform"
                                   HorizontalAlignment="Center" VerticalAlignment="Center"
@@ -30,10 +30,10 @@
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="Pill" Property="Background" Value="#992d3642"/>
+                                <Setter TargetName="Pill" Property="Background" Value="#2d3642"/>
                             </Trigger>
                             <Trigger Property="IsPressed" Value="True">
-                                <Setter TargetName="Pill" Property="Background" Value="#991a222c"/>
+                                <Setter TargetName="Pill" Property="Background" Value="#1a222c"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -44,7 +44,7 @@
         <!-- ── S2: Recording — red dot + 4 dynamic equalizer slots + send button ── -->
         <Grid x:Name="StateRecordingSilent" Visibility="Collapsed"
               HorizontalAlignment="Center" VerticalAlignment="Center">
-            <Border Width="81" Height="28" CornerRadius="14" Background="#99232932" ClipToBounds="True">
+            <Border Width="81" Height="28" CornerRadius="14" Background="#232932" ClipToBounds="True">
                 <Canvas Width="81" Height="28">
                     <!-- recording indicator dot at cx=13,cy=14,r=5 -->
                     <Ellipse Width="10" Height="10" Fill="#F44649" Canvas.Left="8" Canvas.Top="9"/>
@@ -74,7 +74,7 @@
         <!-- ── S4: Processing — 3 pulsing dots ───────────────────────────────── -->
         <Grid x:Name="StateProcessing" Visibility="Collapsed"
               HorizontalAlignment="Center" VerticalAlignment="Center">
-            <Border Width="81" Height="28" CornerRadius="14" Background="#99232932" ClipToBounds="True">
+            <Border Width="81" Height="28" CornerRadius="14" Background="#232932" ClipToBounds="True">
                 <Canvas Width="81" Height="28">
                     <!-- dots from Assets/Icons/processing-audio-together.svg cx=21,41,61 cy=14 r=5 -->
                     <Ellipse x:Name="ProcDot1" Width="10" Height="10" Fill="#BFBFBF"

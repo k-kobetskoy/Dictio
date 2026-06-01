@@ -30,10 +30,9 @@ Thumbs.db
 .claude/
 
 # Local notes & planning (keep only on this machine)
-/TODO.md
+/ROADMAP.md
 /HISTORY.md
 /CLAUDE.md
-/.planning/
 /.github/copilot-instructions.md
 
 # Screenshots / temp files
